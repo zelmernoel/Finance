@@ -23,6 +23,30 @@ export function getCurrentMonth(): { year: number; month: number } {
   return { year: now.getFullYear(), month: now.getMonth() + 1 };
 }
 
+/** Returns the ISO date range for the current billing period given a custom month start day. */
+export function getCustomMonthRange(monthStart: number = 1): { from: string; to: string } {
+  const today = new Date();
+  const day   = today.getDate();
+  let fromYear  = today.getFullYear();
+  let fromMonth = today.getMonth() + 1; // 1-based
+
+  if (day < monthStart) {
+    // Haven't reached start day yet → period began last month
+    const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    fromYear  = prev.getFullYear();
+    fromMonth = prev.getMonth() + 1;
+  }
+
+  const from = `${fromYear}-${String(fromMonth).padStart(2, '0')}-${String(monthStart).padStart(2, '0')}`;
+
+  // End: one day before the next period's start
+  const nextStart = new Date(fromYear, fromMonth - 1 + 1, monthStart);
+  nextStart.setDate(nextStart.getDate() - 1);
+  const to = nextStart.toISOString().slice(0, 10);
+
+  return { from, to };
+}
+
 export function isSameMonth(isoDate: string, year: number, month: number): boolean {
   const [y, m] = isoDate.split('-').map(Number);
   return y === year && m === month;

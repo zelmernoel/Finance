@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useMemo, useRef, useState,
+  useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent,
 } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { Transaction } from '../types';
@@ -8,6 +8,9 @@ import EmptyState from '../components/EmptyState';
 import { formatEuro, formatDate, downloadCSV } from '../utils';
 import { exportTransactionsPDF } from '../lib/exportPDF';
 import { printTransactions } from '../lib/printTransactions';
+import {
+  getReceipt, saveReceipt, deleteReceipt, hasReceipt, fileToDataUrl, printReceipt,
+} from '../lib/receiptStorage';
 
 interface Props {
   transactions: Transaction[];
@@ -62,7 +65,40 @@ export default function Transactions({
   const [sortKey, setSortKey]       = useState<SortKey>('date');
   const [sortDir, setSortDir]       = useState<SortDir>('desc');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-  const searchInputRef              = useRef<HTMLInputElement>(null);
+  const [exportOpen, setExportOpen]       = useState(false);
+  const exportRef                         = useRef<HTMLDivElement>(null);
+  const [receiptModal, setReceiptModal]   = useState<string | null>(null); // txId
+  const [receiptUrl, setReceiptUrl]       = useState<string | null>(null);
+  const [receiptProcessing, setReceiptProcessing] = useState(false);
+  const receiptFileRef = useRef<HTMLInputElement>(null);
+  const receiptCamRef  = useRef<HTMLInputElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  function openReceipt(txId: string) {
+    setReceiptModal(txId);
+    setReceiptUrl(getReceipt(txId));
+  }
+
+  async function handleReceiptFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !receiptModal) return;
+    setReceiptProcessing(true);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      saveReceipt(receiptModal, dataUrl);
+      setReceiptUrl(dataUrl);
+    } finally {
+      setReceiptProcessing(false);
+      e.target.value = '';
+    }
+  }
+
+  function handleDeleteReceipt() {
+    if (!receiptModal) return;
+    deleteReceipt(receiptModal);
+    setReceiptUrl(null);
+    setReceiptModal(null);
+  }
 
   const debouncedSearch = useDebounce(search, 300);
 
@@ -76,7 +112,7 @@ export default function Transactions({
   }, [debouncedSearch, searchParams, setSearchParams]);
 
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
+    function onKeyDown(e: globalThis.KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
         searchInputRef.current?.focus();
@@ -86,6 +122,15 @@ export default function Transactions({
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!exportOpen) return;
+    function close(e: MouseEvent) {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) setExportOpen(false);
+    }
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [exportOpen]);
 
   const categories = useMemo(() => {
     const set = new Set(transactions.map(t => t.category));
@@ -139,13 +184,16 @@ export default function Transactions({
       <Card className="p-4">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 md:gap-3">
           <div className="col-span-2 md:col-span-1 lg:col-span-2 relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 104.5 4.5a7.5 7.5 0 0012.15 12.15z" />
+            </svg>
             <input
               ref={searchInputRef}
               type="text"
               placeholder="Suche… (Strg+F)"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className={`w-full ${inputCls}`}
+              className={`w-full ${inputCls} pl-8`}
             />
             {search && (
               <button
@@ -176,18 +224,38 @@ export default function Transactions({
             {debouncedSearch && <span className="ml-1 text-gray-400 dark:text-gray-500">für „{debouncedSearch}"</span>}
           </p>
           <div className="flex gap-2">
-            <button onClick={() => downloadCSV(filtered)}
-              className="text-xs px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors">
-              CSV
-            </button>
-            <button onClick={() => exportTransactionsPDF(filtered, activeFilters(), userName, budgetName)}
-              className="text-xs px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors">
-              PDF
-            </button>
-            <button onClick={() => printTransactions(filtered, budgetName, userName)}
-              className="text-xs px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors">
-              Drucken
-            </button>
+            {/* Export dropdown */}
+            <div ref={exportRef} className="relative">
+              <button
+                onClick={() => setExportOpen(v => !v)}
+                className="text-xs px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 transition-colors flex items-center gap-1"
+              >
+                Exportieren
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {exportOpen && (
+                <div className="dropdown-enter absolute right-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg z-20 overflow-hidden">
+                  <button onClick={() => { exportTransactionsPDF(filtered, activeFilters(), userName, budgetName); setExportOpen(false); }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+                    Als PDF
+                  </button>
+                  <button onClick={() => { downloadCSV(filtered); setExportOpen(false); }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6M5 8h14M5 4h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5a1 1 0 011-1z" /></svg>
+                    Als CSV
+                  </button>
+                  <div className="border-t border-gray-100 dark:border-gray-700" />
+                  <button onClick={() => { printTransactions(filtered, budgetName, userName); setExportOpen(false); }}
+                    className="w-full text-left px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
+                    Drucken
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </Card>
@@ -202,52 +270,66 @@ export default function Transactions({
         ) : (
           <>
             {/* ── Mobile: Card view ──────────────────────────────────────────── */}
-            <div className="md:hidden divide-y divide-gray-100 dark:divide-gray-700">
-              {filtered.map(t => (
-                <div key={t.id} className="px-4 py-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                        <Highlight text={t.description} query={debouncedSearch} />
-                      </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                        {formatDate(t.date)}
-                        {' · '}
-                        <Highlight text={t.category} query={debouncedSearch} />
-                      </p>
-                      {t.note && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{t.note}</p>}
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-sm font-semibold whitespace-nowrap"
-                        style={t.type === 'income' ? { color: '#4A6FA5' } : undefined}>
-                        <span className="text-gray-900 dark:text-gray-100">
-                          {t.type === 'income' ? '+' : '−'} {formatEuro(t.amount)}
+            <div className="lg:hidden divide-y divide-gray-100 dark:divide-gray-700">
+              {filtered.map(t => {
+                const hasImg = hasReceipt(t.id);
+                return (
+                  <div key={t.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                          <Highlight text={t.description} query={debouncedSearch} />
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                          {formatDate(t.date)}
+                          {' · '}
+                          <Highlight text={t.category} query={debouncedSearch} />
+                        </p>
+                        {t.note && t.note.split('\n').filter(Boolean).map((n, i) => (
+                          <p key={i} className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{n}</p>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <span className="text-sm font-semibold whitespace-nowrap mr-1">
+                          <span className="text-gray-900 dark:text-gray-100"
+                            style={t.type === 'income' ? { color: '#4A6FA5' } : undefined}>
+                            {t.type === 'income' ? '+' : '−'} {formatEuro(t.amount)}
+                          </span>
                         </span>
-                      </span>
-                      {deleteConfirm === t.id ? (
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => { onDelete(t.id); setDeleteConfirm(null); }}
-                            className="text-xs px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded">Ja</button>
-                          <button onClick={() => setDeleteConfirm(null)}
-                            className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300">Nein</button>
-                        </div>
-                      ) : (
-                        <button onClick={() => setDeleteConfirm(t.id)}
-                          className="text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors p-1 min-w-[44px] min-h-[44px] flex items-center justify-center">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
+                        {/* Receipt icon */}
+                        <button
+                          onClick={() => openReceipt(t.id)}
+                          className={`p-1 min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors ${
+                            hasImg
+                              ? 'text-[#4A6FA5]'
+                              : 'text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400'
+                          }`}
+                          title={hasImg ? 'Beleg ansehen' : 'Beleg hinzufügen'}
+                        >
+                          <ReceiptIcon />
                         </button>
-                      )}
+                        {deleteConfirm === t.id ? (
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => { onDelete(t.id); setDeleteConfirm(null); }}
+                              className="text-xs px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded">Ja</button>
+                            <button onClick={() => setDeleteConfirm(null)}
+                              className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300">Nein</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setDeleteConfirm(t.id)}
+                            className="text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors p-1 min-w-[44px] min-h-[44px] flex items-center justify-center">
+                            <TrashIcon />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* ── Desktop: Table view ────────────────────────────────────────── */}
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden lg:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wide">
@@ -262,58 +344,199 @@ export default function Transactions({
                       onClick={() => toggleSort('amount')}>
                       Betrag <SortIcon k="amount" />
                     </th>
+                    <th className="px-4 py-3 text-center font-medium">Beleg</th>
                     <th className="px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(t => (
-                    <tr key={t.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatDate(t.date)}</td>
-                      <td className="px-4 py-3">
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
-                          {t.type === 'income' ? 'Einnahme' : 'Ausgabe'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
-                        <Highlight text={t.category} query={debouncedSearch} />
-                      </td>
-                      <td className="px-4 py-3 text-gray-900 dark:text-gray-100">
-                        <Highlight text={t.description} query={debouncedSearch} />
-                        {t.note && <span className="block text-xs text-gray-400 dark:text-gray-500">{t.note}</span>}
-                      </td>
-                      <td className="px-4 py-3 text-right font-medium whitespace-nowrap">
-                        <span className="text-gray-900 dark:text-gray-100"
-                          style={t.type === 'income' ? { color: '#4A6FA5' } : undefined}>
-                          {t.type === 'income' ? '+' : '−'} {formatEuro(t.amount)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {deleteConfirm === t.id ? (
-                          <div className="flex items-center gap-2 justify-end">
-                            <span className="text-xs text-gray-500 dark:text-gray-400">Löschen?</span>
-                            <button onClick={() => { onDelete(t.id); setDeleteConfirm(null); }}
-                              className="text-xs px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded hover:bg-gray-700">Ja</button>
-                            <button onClick={() => setDeleteConfirm(null)}
-                              className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">Nein</button>
-                          </div>
-                        ) : (
-                          <button onClick={() => setDeleteConfirm(t.id)}
-                            className="text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 transition-colors p-1 rounded">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
+                  {filtered.map(t => {
+                    const hasImg = hasReceipt(t.id);
+                    return (
+                      <tr key={t.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatDate(t.date)}</td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
+                            {t.type === 'income' ? 'Einnahme' : 'Ausgabe'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                          <Highlight text={t.category} query={debouncedSearch} />
+                        </td>
+                        <td className="px-4 py-3 text-gray-900 dark:text-gray-100">
+                          <Highlight text={t.description} query={debouncedSearch} />
+                          {t.note && t.note.split('\n').filter(Boolean).map((n, i) => (
+                            <span key={i} className="block text-xs text-gray-400 dark:text-gray-500">{n}</span>
+                          ))}
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium whitespace-nowrap">
+                          <span className="text-gray-900 dark:text-gray-100"
+                            style={t.type === 'income' ? { color: '#4A6FA5' } : undefined}>
+                            {t.type === 'income' ? '+' : '−'} {formatEuro(t.amount)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => openReceipt(t.id)}
+                            title={hasImg ? 'Beleg ansehen' : 'Beleg hinzufügen'}
+                            className={`p-1 rounded transition-colors ${
+                              hasImg
+                                ? 'text-[#4A6FA5] hover:opacity-70'
+                                : 'text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400'
+                            }`}
+                          >
+                            <ReceiptIcon />
                           </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {deleteConfirm === t.id ? (
+                            <div className="flex items-center gap-2 justify-end">
+                              <span className="text-xs text-gray-500 dark:text-gray-400">Löschen?</span>
+                              <button onClick={() => { onDelete(t.id); setDeleteConfirm(null); }}
+                                className="text-xs px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded hover:bg-gray-700">Ja</button>
+                              <button onClick={() => setDeleteConfirm(null)}
+                                className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">Nein</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setDeleteConfirm(t.id)}
+                              className="text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 transition-colors p-1 rounded">
+                              <TrashIcon />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </>
         )}
       </Card>
+
+      {/* Hidden file inputs for receipt modal */}
+      <input ref={receiptCamRef}  type="file" accept="image/*" capture="environment" className="hidden" onChange={handleReceiptFile} />
+      <input ref={receiptFileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={handleReceiptFile} />
+
+      {/* ── Receipt Modal ─────────────────────────────────────────────── */}
+      {receiptModal && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setReceiptModal(null)} />
+          <div className="modal-enter fixed inset-x-4 top-1/2 -translate-y-1/2 z-50 max-w-lg mx-auto">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {receiptUrl ? 'Beleg' : 'Beleg hinzufügen'}
+                </p>
+                <button
+                  onClick={() => setReceiptModal(null)}
+                  className="text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 p-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="p-4">
+                {receiptUrl ? (
+                  <img
+                    src={receiptUrl}
+                    alt="Beleg"
+                    className="w-full max-h-[60vh] object-contain rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 gap-4">
+                    <div className="w-12 h-12 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center text-gray-400 dark:text-gray-500">
+                      <ReceiptIcon />
+                    </div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
+                      Noch kein Beleg vorhanden.
+                    </p>
+                    {receiptProcessing && (
+                      <p className="text-xs text-gray-400 dark:text-gray-500">Verarbeite…</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 px-4 pb-4 flex-wrap">
+                {/* Camera — mobile only */}
+                <button
+                  onClick={() => receiptCamRef.current?.click()}
+                  className="lg:hidden flex items-center gap-1.5 px-3 py-2 text-xs border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                      d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Kamera
+                </button>
+                {/* File upload */}
+                <button
+                  onClick={() => receiptFileRef.current?.click()}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                      d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                  <span className="lg:hidden">Galerie / Datei</span>
+                  <span className="hidden lg:inline">Datei hochladen</span>
+                </button>
+                {/* Print — desktop only */}
+                {receiptUrl && (
+                  <button
+                    onClick={() => {
+                      const tx = filtered.find(t => t.id === receiptModal);
+                      printReceipt(receiptUrl, tx?.description ?? 'Beleg');
+                    }}
+                    className="hidden lg:flex items-center gap-1.5 px-3 py-2 text-xs border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                        d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                    </svg>
+                    Drucken
+                  </button>
+                )}
+                {/* Spacer */}
+                <div className="flex-1" />
+                {/* Delete receipt */}
+                {receiptUrl && (
+                  <button
+                    onClick={handleDeleteReceipt}
+                    className="flex items-center gap-1.5 px-3 py-2 text-xs border border-red-200 dark:border-red-800 rounded text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  >
+                    Beleg entfernen
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
+  );
+}
+
+function ReceiptIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+        d="M9 12h6m-6 4h6M5 8h14M3 6l1 14a1 1 0 001 1h14a1 1 0 001-1L21 6M3 6h18" />
+    </svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+    </svg>
   );
 }

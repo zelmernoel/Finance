@@ -21,6 +21,7 @@ export interface Settings {
   id: string;
   startingBalance: number;
   name: string;
+  monthStart?: number; // day of month (1–28) when the billing period begins
 }
 
 // ── Budget (workspace) ────────────────────────────────────────────────────────

@@ -2,8 +2,8 @@ import { Link } from 'react-router-dom';
 
 export default function GuestBanner() {
   return (
-    <div className="w-full bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-6 py-2.5">
-      <div className="max-w-screen-xl mx-auto flex items-center justify-between gap-4">
+    <div className="w-full bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 py-2.5">
+      <div className="max-w-screen-xl mx-auto px-6 flex items-center justify-between gap-4">
         <p className="text-sm text-amber-800 dark:text-amber-300">
           <span className="font-medium">👤 Gast-Modus</span>
           {' '}— Deine Daten werden nur auf diesem Gerät gespeichert.

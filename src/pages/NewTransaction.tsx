@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { Category, Transaction, Frequency } from '../types';
 import type { StorageAdapter } from '../lib/storage';
 import Card from '../components/Card';
 import { ACCENT } from '../utils';
 import { calcNextDue } from '../hooks/useRecurringTransactions';
+import { saveReceipt, fileToDataUrl } from '../lib/receiptStorage';
 
 interface Props {
   categories: Category[];
@@ -31,7 +32,7 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
   const [amount, setAmount]       = useState('');
   const [category, setCategory]   = useState('');
   const [description, setDesc]    = useState('');
-  const [note, setNote]           = useState('');
+  const [notes, setNotes]         = useState<string[]>(['']);
   const [loading, setLoading]     = useState(false);
   const [success, setSuccess]     = useState(false);
   const [newCatName, setNewCat]   = useState('');
@@ -40,6 +41,25 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
   const [isRecurring, setIsRecurring] = useState(false);
   const [frequency, setFrequency]     = useState<Frequency>('monthly');
   const [endDate, setEndDate]         = useState('');
+
+  // Receipt
+  const [receiptDataUrl, setReceiptDataUrl] = useState<string | null>(null);
+  const [receiptProcessing, setReceiptProcessing] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef   = useRef<HTMLInputElement>(null);
+
+  async function handleReceiptFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setReceiptProcessing(true);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setReceiptDataUrl(dataUrl);
+    } finally {
+      setReceiptProcessing(false);
+      e.target.value = '';
+    }
+  }
 
   const relevantCats = categories.filter(c => c.type === type).map(c => c.name);
   const fallbackCats = type === 'expense' ? DEFAULT_EXPENSE_CATS : DEFAULT_INCOME_CATS;
@@ -55,18 +75,21 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
 
     setLoading(true);
     try {
+      const noteValue = notes.filter(n => n.trim()).join('\n') || undefined;
       const tx: Transaction = {
         id: uuidv4(), date, type, amount: parsed,
-        category, description, note,
+        category, description,
+        note: noteValue,
       };
       await onSubmit(tx);
+      if (receiptDataUrl) saveReceipt(tx.id, receiptDataUrl);
 
       if (isRecurring && storage) {
         let nextDue = date;
         while (nextDue < today) nextDue = calcNextDue(nextDue, frequency);
         await storage.addRecurring({
           id: uuidv4(), budgetId, amount: parsed, type,
-          category, description, note,
+          category, description, note: noteValue,
           frequency, startDate: date,
           endDate: endDate || undefined,
           nextDue: calcNextDue(date, frequency),
@@ -74,9 +97,10 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
         });
       }
 
-      setAmount(''); setDesc(''); setNote('');
+      setAmount(''); setDesc(''); setNotes(['']);
       setDate(today); setCategory('');
       setIsRecurring(false); setEndDate('');
+      setReceiptDataUrl(null);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 2500);
     } finally {
@@ -165,13 +189,44 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
               className={inputCls} />
           </div>
 
-          {/* Note */}
+          {/* Notes — dynamic list */}
           <div>
             <label className={labelCls}>
-              Notiz <span className="normal-case font-normal">(optional)</span>
+              Notizen <span className="normal-case font-normal">(optional)</span>
             </label>
-            <input value={note} onChange={e => setNote(e.target.value)} placeholder="Optionale Notiz..."
-              className={inputCls} />
+            <div className="space-y-2">
+              {notes.map((n, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input
+                    value={n}
+                    onChange={e => setNotes(prev => prev.map((v, j) => j === i ? e.target.value : v))}
+                    placeholder={`Notiz ${notes.length > 1 ? i + 1 : ''}…`}
+                    className={`flex-1 ${inputCls}`}
+                  />
+                  {notes.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => setNotes(prev => prev.filter((_, j) => j !== i))}
+                      className="text-gray-300 dark:text-gray-600 hover:text-red-400 dark:hover:text-red-500 transition-colors flex-shrink-0"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setNotes(prev => [...prev, ''])}
+                className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 flex items-center gap-1 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Notiz hinzufügen
+              </button>
+            </div>
           </div>
 
           {/* Recurring toggle */}
@@ -201,6 +256,46 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
             )}
           </div>
 
+          {/* Receipt upload */}
+          <div className="border border-gray-200 dark:border-gray-600 rounded p-3">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2.5">
+              Beleg (optional)
+            </p>
+            {receiptDataUrl ? (
+              <div className="relative">
+                <img
+                  src={receiptDataUrl}
+                  alt="Beleg"
+                  className="w-full max-h-48 object-contain rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800"
+                />
+                <button
+                  type="button"
+                  onClick={() => setReceiptDataUrl(null)}
+                  className="absolute top-1.5 right-1.5 bg-gray-900/60 hover:bg-gray-900/80 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs transition-colors"
+                >✕</button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                {/* Camera — mobile only */}
+                <label className="lg:hidden flex-1 flex items-center justify-center gap-2 py-2.5 border border-gray-200 dark:border-gray-600 rounded text-sm text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 min-h-[44px] transition-colors">
+                  <CameraIcon />
+                  Kamera
+                  <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleReceiptFile} />
+                </label>
+                {/* File / Gallery — always visible */}
+                <label className="flex-1 flex items-center justify-center gap-2 py-2.5 border border-gray-200 dark:border-gray-600 rounded text-sm text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 min-h-[44px] transition-colors">
+                  <AttachIcon />
+                  <span className="lg:hidden">Galerie / Datei</span>
+                  <span className="hidden lg:inline">Datei anhängen</span>
+                  <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={handleReceiptFile} />
+                </label>
+                {receiptProcessing && (
+                  <span className="text-xs text-gray-400 dark:text-gray-500 self-center">Verarbeite…</span>
+                )}
+              </div>
+            )}
+          </div>
+
           <button type="submit" disabled={loading}
             className="w-full py-3 text-sm font-semibold text-white rounded transition-opacity disabled:opacity-50 min-h-[44px]"
             style={{ backgroundColor: ACCENT }}>
@@ -215,5 +310,24 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
         </form>
       </Card>
     </div>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+        d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+}
+
+function AttachIcon() {
+  return (
+    <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+    </svg>
   );
 }

@@ -9,7 +9,7 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import EmptyState from '../components/EmptyState';
 import {
   formatEuro, getCurrentMonth, filterByMonth, getLast12Months,
-  groupByCategory, ACCENT, CHART_COLORS,
+  getCustomMonthRange, groupByCategory, ACCENT, CHART_COLORS,
 } from '../utils';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,15 +24,17 @@ interface Props {
   categories: Category[];
   onNavigateToNew: () => void;
   onUpdateCategory: (id: string, patch: { monthlyBudget?: number }) => Promise<void>;
+  monthStart?: number;
 }
 
-export default function Analysis({ transactions, categories, onNavigateToNew, onUpdateCategory }: Props) {
+export default function Analysis({ transactions, categories, onNavigateToNew, onUpdateCategory, monthStart = 1 }: Props) {
   const { year, month } = getCurrentMonth();
+  const { from: periodFrom, to: periodTo } = getCustomMonthRange(monthStart);
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
 
   const currentExpenses = useMemo(() =>
-    filterByMonth(transactions, year, month).filter(t => t.type === 'expense'),
-    [transactions, year, month]);
+    transactions.filter(t => t.type === 'expense' && t.date >= periodFrom && t.date <= periodTo),
+    [transactions, periodFrom, periodTo]);
 
   const prevMonth = month === 1 ? 12 : month - 1;
   const prevYear  = month === 1 ? year - 1 : year;

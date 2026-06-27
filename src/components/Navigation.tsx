@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import type { Tab } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useBudget } from '../context/BudgetContext';
@@ -9,14 +9,13 @@ interface NavigationProps {
   onTabChange: (tab: Tab) => void;
 }
 
-const TABS: { id: Tab; label: string }[] = [
+// Regular nav tabs for desktop (excludes 'new' and 'settings' — rendered separately)
+const NAV_TABS: { id: Tab; label: string }[] = [
   { id: 'dashboard',    label: 'Dashboard' },
   { id: 'transactions', label: 'Transaktionen' },
-  { id: 'new',          label: '+ Neue Transaktion' },
   { id: 'analysis',     label: 'Auswertungen' },
   { id: 'recurring',    label: 'Daueraufträge' },
   { id: 'budgets',      label: 'Budgets' },
-  { id: 'settings',     label: 'Einstellungen' },
 ];
 
 // ── Mobile bottom nav tabs ────────────────────────────────────────────────────
@@ -67,11 +66,11 @@ function IconSettings() {
 }
 
 const MOBILE_TABS = [
-  { id: 'dashboard'    as Tab, label: 'Dashboard',       Icon: IconDashboard },
-  { id: 'transactions' as Tab, label: 'Transaktionen',   Icon: IconTransactions },
+  { id: 'dashboard'    as Tab, label: 'Start',           Icon: IconDashboard },
+  { id: 'transactions' as Tab, label: 'Verlauf',         Icon: IconTransactions },
   { id: 'new'          as Tab, label: 'Neu',             Icon: IconPlus },
-  { id: 'analysis'     as Tab, label: 'Auswertungen',    Icon: IconAnalysis },
-  { id: 'settings'     as Tab, label: 'Einstellungen',   Icon: IconSettings },
+  { id: 'analysis'     as Tab, label: 'Analyse',         Icon: IconAnalysis },
+  { id: 'settings'     as Tab, label: 'Mehr',            Icon: IconSettings },
 ];
 
 export default function Navigation({ activeTab, onTabChange }: NavigationProps) {
@@ -79,7 +78,11 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
   const { budgets, activeBudget, setActiveBudgetId } = useBudget();
   const [signingOut, setSigningOut] = useState(false);
   const [dropdownOpen, setDropdown] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close "Mehr" sheet when navigating away
+  useEffect(() => { setMoreOpen(false); }, [activeTab]);
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -89,7 +92,7 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
   return (
     <>
       {/* ── Desktop Top Nav (hidden on mobile) ───────────────────────────────── */}
-      <nav className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 sticky top-0 z-10 hidden md:block">
+      <nav className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 sticky top-0 z-10 hidden lg:block">
         <div className="max-w-screen-xl mx-auto px-6">
           <div className="flex items-center gap-0">
             {/* Logo */}
@@ -142,15 +145,15 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
               </div>
             )}
 
-            {/* Tabs */}
-            <div className="flex gap-0 flex-1 overflow-x-auto">
-              {TABS.map((t) => {
+            {/* Regular nav tabs */}
+            <div className="flex gap-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+              {NAV_TABS.map((t) => {
                 const isActive = activeTab === t.id;
                 return (
                   <button
                     key={t.id}
                     onClick={() => { onTabChange(t.id); setDropdown(false); }}
-                    className={`px-3 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                    className={`px-2 xl:px-3 py-4 text-xs xl:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                       isActive
                         ? 'border-[#4A6FA5] text-[#4A6FA5]'
                         : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
@@ -162,10 +165,42 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
               })}
             </div>
 
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* "+ Neue Transaktion" — accent pill button */}
+            <button
+              onClick={() => { onTabChange('new'); setDropdown(false); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-full transition-opacity hover:opacity-80 flex-shrink-0 mx-3"
+              style={{ backgroundColor: ACCENT }}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+              </svg>
+              Neue Transaktion
+            </button>
+
+            {/* Settings gear icon — right edge */}
+            <button
+              onClick={() => { onTabChange('settings'); setDropdown(false); }}
+              title="Einstellungen"
+              className={`p-2 rounded transition-colors flex-shrink-0 ${
+                activeTab === 'settings'
+                  ? 'text-[#4A6FA5]'
+                  : 'text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+
             {/* User + Logout */}
-            <div className="flex items-center gap-2 ml-2 flex-shrink-0">
+            <div className="flex items-center gap-2 ml-1 flex-shrink-0 border-l border-gray-200 dark:border-gray-700 pl-3">
               {user && (
-                <span className="text-xs text-gray-400 dark:text-gray-500 hidden lg:block truncate max-w-[140px]" title={user.email ?? ''}>
+                <span className="text-xs text-gray-400 dark:text-gray-500 hidden xl:block truncate max-w-[140px]" title={user.email ?? ''}>
                   {user.email}
                 </span>
               )}
@@ -187,8 +222,8 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
         </div>
       </nav>
 
-      {/* ── Mobile Bottom Nav (hidden on md+) ────────────────────────────────── */}
-      <nav className="fixed bottom-0 inset-x-0 z-10 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 md:hidden">
+      {/* ── Mobile Bottom Nav (hidden on lg+) ────────────────────────────────── */}
+      <nav className="fixed bottom-0 inset-x-0 z-10 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 lg:hidden">
         <div className="flex items-end justify-around px-1 pt-1 pb-2">
           {MOBILE_TABS.map((t) => {
             if (t.id === 'new') {
@@ -209,6 +244,27 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
                 </button>
               );
             }
+
+            // "Mehr" tab — opens sheet instead of navigating
+            if (t.id === 'settings') {
+              const moreActive = moreOpen || activeTab === 'settings' || activeTab === 'recurring' || activeTab === 'budgets';
+              return (
+                <button
+                  key="mehr"
+                  onClick={() => setMoreOpen(v => !v)}
+                  className="flex flex-col items-center gap-0.5 py-1 px-2 min-w-[56px] min-h-[44px] justify-center transition-colors"
+                  style={moreActive ? { color: ACCENT } : undefined}
+                >
+                  <span className={moreActive ? '' : 'text-gray-400 dark:text-gray-500'}>
+                    <t.Icon />
+                  </span>
+                  <span className={`text-[10px] ${moreActive ? '' : 'text-gray-400 dark:text-gray-500'}`}>
+                    Mehr
+                  </span>
+                </button>
+              );
+            }
+
             const isActive = activeTab === t.id;
             return (
               <button
@@ -228,6 +284,45 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
           })}
         </div>
       </nav>
+
+      {/* ── "Mehr" sheet (slides up from bottom nav) ─────────────────────────── */}
+      {moreOpen && (
+        <>
+          {/* backdrop */}
+          <div
+            className="fixed inset-0 z-20 lg:hidden"
+            onClick={() => setMoreOpen(false)}
+          />
+          <div className="sheet-enter fixed bottom-[60px] inset-x-0 z-30 lg:hidden">
+            <div className="mx-3 mb-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+              {([
+                { id: 'recurring' as Tab, label: 'Daueraufträge', desc: 'Wiederkehrende Buchungen verwalten' },
+                { id: 'budgets'   as Tab, label: 'Budgets',        desc: 'Mehrere Budgets verwalten' },
+                { id: 'settings'  as Tab, label: 'Einstellungen',  desc: 'Kategorien, Darstellung, Export' },
+              ]).map((item, i, arr) => (
+                <button
+                  key={item.id}
+                  onClick={() => { onTabChange(item.id); setMoreOpen(false); }}
+                  className={`w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                    i < arr.length - 1 ? 'border-b border-gray-100 dark:border-gray-700' : ''
+                  } ${activeTab === item.id ? 'bg-gray-50 dark:bg-gray-700/50' : ''}`}
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.label}</p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{item.desc}</p>
+                  </div>
+                  {activeTab === item.id && (
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: ACCENT }} />
+                  )}
+                  <svg className="w-4 h-4 text-gray-300 dark:text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

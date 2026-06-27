@@ -156,6 +156,14 @@ export default function MainApp() {
     setTx([]);
   }
 
+  async function handleDeleteTransactionsByPeriod(from: string, to: string) {
+    if (!storage) return;
+    const ids = transactions.filter(t => t.date >= from && t.date <= to).map(t => t.id);
+    if (!ids.length) return;
+    await storage.deleteAllTransactions(ids);
+    setTx(prev => prev.filter(t => !ids.includes(t.id)));
+  }
+
   // ── Migration: import guest data into Supabase ────────────────────────────
   async function handleMigrateImport() {
     if (!user || !activeBudgetId) return;
@@ -216,13 +224,15 @@ export default function MainApp() {
       {!user && <GuestBanner />}
       <Navigation activeTab={tab} onTabChange={setTab} />
 
-      <main className="max-w-screen-xl mx-auto px-4 md:px-6 py-4 md:py-6 pb-24 md:pb-6">
+      <main className="max-w-screen-xl mx-auto px-4 lg:px-6 py-4 lg:py-6 pb-24 lg:pb-6">
+        <div key={tab} className="tab-enter">
         {tab === 'dashboard' && (
           <Dashboard
             transactions={transactions}
             startingBalance={settings.startingBalance}
             userName={settings.name}
             onNavigateToNew={() => setTab('new')}
+            monthStart={settings.monthStart ?? 1}
           />
         )}
         {tab === 'transactions' && (
@@ -249,6 +259,7 @@ export default function MainApp() {
             categories={categories}
             onNavigateToNew={() => setTab('new')}
             onUpdateCategory={handleUpdateCategory}
+            monthStart={settings.monthStart ?? 1}
           />
         )}
         {tab === 'recurring' && storage && activeBudgetId && (
@@ -271,8 +282,10 @@ export default function MainApp() {
             onUpdateCategory={handleUpdateCategory}
             onImportTransactions={handleImportTransactions}
             onResetAllTransactions={handleResetAllTransactions}
+            onDeleteTransactionsByPeriod={handleDeleteTransactionsByPeriod}
           />
         )}
+        </div>
       </main>
 
       {showMigrate && (

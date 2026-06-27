@@ -9,6 +9,7 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import EmptyState from '../components/EmptyState';
 import {
   formatEuro, getCurrentMonth, filterByMonth, getLast12Months,
+  getCustomMonthRange,
   groupByCategory, computeBalance, CHART_INCOME, CHART_EXPENSE, CHART_COLORS, ACCENT
 } from '../utils';
 
@@ -17,6 +18,7 @@ interface Props {
   startingBalance: number;
   userName: string;
   onNavigateToNew: () => void;
+  monthStart?: number;
 }
 
 type DonutRange = 'current' | 'last3' | 'all';
@@ -44,11 +46,15 @@ function KpiCard({ label, value, highlight = false }: { label: string; value: st
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const euroFormatter = (value: any) => formatEuro(typeof value === 'number' ? value : 0);
 
-export default function Dashboard({ transactions, startingBalance, userName, onNavigateToNew }: Props) {
+export default function Dashboard({ transactions, startingBalance, userName, onNavigateToNew, monthStart = 1 }: Props) {
   const [donutRange, setDonutRange] = useState<DonutRange>('current');
   const { year, month } = getCurrentMonth();
 
-  const currentMonthTx = useMemo(() => filterByMonth(transactions, year, month), [transactions, year, month]);
+  const { from: periodFrom, to: periodTo } = getCustomMonthRange(monthStart);
+  const currentMonthTx = useMemo(
+    () => transactions.filter(t => t.date >= periodFrom && t.date <= periodTo),
+    [transactions, periodFrom, periodTo],
+  );
   const currentIncome  = useMemo(() => currentMonthTx.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0), [currentMonthTx]);
   const currentExpense = useMemo(() => currentMonthTx.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0), [currentMonthTx]);
   const balance        = useMemo(() => startingBalance + computeBalance(transactions), [transactions, startingBalance]);
