@@ -1,0 +1,68 @@
+{
+  "transactions": [],
+  "categories": [
+    {
+      "id": "cat-exp-1",
+      "name": "Lebensmittel",
+      "type": "expense"
+    },
+    {
+      "id": "cat-exp-2",
+      "name": "Transport",
+      "type": "expense"
+    },
+    {
+      "id": "cat-exp-3",
+      "name": "Freizeit",
+      "type": "expense"
+    },
+    {
+      "id": "cat-exp-4",
+      "name": "Kleidung",
+      "type": "expense"
+    },
+    {
+      "id": "cat-exp-5",
+      "name": "Technik",
+      "type": "expense"
+    },
+    {
+      "id": "cat-exp-6",
+      "name": "Bildung",
+      "type": "expense"
+    },
+    {
+      "id": "cat-exp-7",
+      "name": "Sonstiges",
+      "type": "expense"
+    },
+    {
+      "id": "cat-inc-1",
+      "name": "Lohn",
+      "type": "income"
+    },
+    {
+      "id": "cat-inc-2",
+      "name": "Nebeneinkommen",
+      "type": "income"
+    },
+    {
+      "id": "cat-inc-3",
+      "name": "Geschenk",
+      "type": "income"
+    },
+    {
+      "id": "cat-inc-4",
+      "name": "Sonstiges",
+      "type": "income"
+    }
+  ],
+  "settings": [
+    {
+      "id": "1",
+      "startingBalance": 0,
+      "name": ""
+    }
+  ],
+  "$schema": "./node_modules/json-server/schema.json"
+}
