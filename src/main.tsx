@@ -1,0 +1,22 @@
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { BudgetProvider } from './context/BudgetContext';
+import { ToastProvider } from './components/Toast';
+import App from './App.tsx';
+import './index.css';
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <BrowserRouter>
+      <AuthProvider>
+        <BudgetProvider>
+          <ToastProvider>
+            <App />
+          </ToastProvider>
+        </BudgetProvider>
+      </AuthProvider>
+    </BrowserRouter>
+  </StrictMode>,
+);
