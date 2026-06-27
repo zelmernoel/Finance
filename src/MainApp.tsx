@@ -186,11 +186,11 @@ export default function MainApp() {
 
   if (loadingBudgets || (loading && !error)) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-gray-200 rounded-full animate-spin mx-auto mb-3"
+          <div className="w-8 h-8 border-2 border-gray-200 dark:border-gray-700 rounded-full animate-spin mx-auto mb-3"
             style={{ borderTopColor: ACCENT }} />
-          <p className="text-sm text-gray-500">Daten werden geladen…</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Daten werden geladen…</p>
         </div>
       </div>
     );
@@ -198,10 +198,10 @@ export default function MainApp() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
         <div className="text-center max-w-sm">
-          <p className="font-medium text-gray-900 mb-2">Fehler beim Laden</p>
-          <p className="text-sm text-gray-500 mb-4">{error}</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100 mb-2">Fehler beim Laden</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{error}</p>
           <button onClick={loadData} className="px-4 py-2 text-sm text-white rounded"
             style={{ backgroundColor: ACCENT }}>Erneut versuchen</button>
         </div>
@@ -212,11 +212,11 @@ export default function MainApp() {
   const guestTxCount = hasGuestData() ? getAllGuestData().transactions.length : 0;
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white dark:bg-gray-900">
       {!user && <GuestBanner />}
       <Navigation activeTab={tab} onTabChange={setTab} />
 
-      <main className="max-w-screen-xl mx-auto px-6 py-6">
+      <main className="max-w-screen-xl mx-auto px-4 md:px-6 py-4 md:py-6 pb-24 md:pb-6">
         {tab === 'dashboard' && (
           <Dashboard
             transactions={transactions}

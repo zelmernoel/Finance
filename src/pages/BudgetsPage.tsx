@@ -45,7 +45,7 @@ export default function BudgetsPage() {
   return (
     <div className="max-w-2xl mx-auto space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-gray-900">Budgets</h1>
+        <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Budgets</h1>
         <button
           onClick={() => setShowForm(v => !v)}
           className="px-4 py-2 text-sm font-medium text-white rounded"
@@ -58,45 +58,45 @@ export default function BudgetsPage() {
       {/* Create form */}
       {showForm && (
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-gray-800 mb-4">Budget erstellen</h2>
+          <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4">Budget erstellen</h2>
           <form onSubmit={handleCreate} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Name</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Name</label>
               <input
                 value={formName} onChange={e => setFormName(e.target.value)}
                 placeholder="z. B. Firma 2026"
                 required
-                className="w-full border border-gray-200 rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#4A6FA5]"
+                className="w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-[#4A6FA5]"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Typ</label>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Typ</label>
                 <select
                   value={formType} onChange={e => setFormType(e.target.value as Budget['type'])}
-                  className="w-full border border-gray-200 rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#4A6FA5] bg-white"
+                  className="w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]"
                 >
                   <option value="personal">Privat</option>
                   <option value="business">Firma</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Startguthaben (€)</label>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Startguthaben (€)</label>
                 <input
                   value={formBalance} onChange={e => setFormBalance(e.target.value)}
                   placeholder="0,00" inputMode="decimal"
-                  className="w-full border border-gray-200 rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#4A6FA5]"
+                  className="w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-[#4A6FA5]"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Farbe</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Farbe</label>
               <div className="flex gap-2 flex-wrap">
                 {PRESET_COLORS.map(c => (
                   <button
                     key={c} type="button"
                     onClick={() => setFormColor(c)}
-                    className={`w-6 h-6 rounded-full border-2 transition-all ${formColor === c ? 'border-gray-900 scale-110' : 'border-transparent'}`}
+                    className={`w-6 h-6 rounded-full border-2 transition-all ${formColor === c ? 'border-gray-900 dark:border-gray-100 scale-110' : 'border-transparent'}`}
                     style={{ backgroundColor: c }}
                   />
                 ))}
@@ -111,7 +111,7 @@ export default function BudgetsPage() {
                 {saving ? 'Erstellen…' : 'Budget erstellen'}
               </button>
               <button type="button" onClick={() => setShowForm(false)}
-                className="px-4 py-2 text-sm border border-gray-200 rounded text-gray-600 hover:bg-gray-50">
+                className="px-4 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
                 Abbrechen
               </button>
             </div>
@@ -185,21 +185,21 @@ function BudgetCard({
             <div className="flex gap-2">
               <input
                 value={editName} onChange={e => setEditName(e.target.value)}
-                className="flex-1 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-[#4A6FA5]"
+                className="flex-1 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]"
               />
               <input
                 value={editBalance} onChange={e => setEditBalance(e.target.value)}
                 placeholder="Startguthaben"
-                className="w-28 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:border-[#4A6FA5]"
+                className="w-28 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-[#4A6FA5]"
               />
             </div>
           ) : (
             <div>
-              <p className="text-sm font-medium text-gray-900 truncate">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                 {budget.name}
-                {isActive && <span className="ml-2 text-xs font-normal text-gray-400">(aktiv)</span>}
+                {isActive && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(aktiv)</span>}
               </p>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-400 dark:text-gray-500">
                 {budget.type === 'business' ? 'Firma' : 'Privat'} · Startguthaben: {formatEuro(budget.startingBalance)}
               </p>
             </div>
@@ -208,7 +208,7 @@ function BudgetCard({
         <div className="flex items-center gap-1 flex-shrink-0">
           {!isActive && !isEditing && (
             <button onClick={onActivate}
-              className="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 text-gray-600">
+              className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
               Wechseln
             </button>
           )}
@@ -220,11 +220,11 @@ function BudgetCard({
                 {saving ? '…' : 'Speichern'}
               </button>
               <button onClick={() => setEditingId(null)}
-                className="text-xs px-2 py-1 border border-gray-200 rounded">Abbruch</button>
+                className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300">Abbruch</button>
             </>
           ) : (
             <button onClick={() => { setEditName(budget.name); setEditBalance(String(budget.startingBalance)); setEditingId(budget.id); }}
-              className="p-1 text-gray-400 hover:text-gray-700">
+              className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                   d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -234,13 +234,13 @@ function BudgetCard({
           {deleteConfirm === budget.id ? (
             <div className="flex gap-1">
               <button onClick={() => onDelete(budget.id)}
-                className="text-xs px-2 py-1 bg-gray-900 text-white rounded">Ja</button>
+                className="text-xs px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded">Ja</button>
               <button onClick={() => onDeleteConfirm(null)}
-                className="text-xs px-2 py-1 border border-gray-200 rounded">Nein</button>
+                className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300">Nein</button>
             </div>
           ) : (
             <button onClick={() => onDeleteConfirm(budget.id)}
-              className="p-1 text-gray-300 hover:text-gray-600">
+              className="p-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                   d="M6 18L18 6M6 6l12 12" />

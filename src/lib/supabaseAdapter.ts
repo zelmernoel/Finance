@@ -148,6 +148,14 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       if (error) throw new Error(error.message);
 
       if (!data || data.length === 0) {
+        // Check if this user already has categories in ANY budget before seeding defaults
+        const { data: existing } = await supabase
+          .from('categories')
+          .select('id')
+          .eq('user_id', userId)
+          .limit(1);
+        if (existing && existing.length > 0) return [];
+
         const rows = DEFAULT_CATEGORIES.map((c, i) => ({
           id: `cat-${c.type.slice(0, 3)}-${i + 1}-${userId.slice(0, 6)}`,
           user_id: userId, budget_id: budgetId,

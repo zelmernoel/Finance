@@ -37,7 +37,7 @@ export default function RecurringPage({ storage, categories, budgetId, onNavigat
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-gray-900">Daueraufträge</h1>
+        <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Daueraufträge</h1>
         <button
           onClick={() => setShowForm(v => !v)}
           className="px-4 py-2 text-sm font-medium text-white rounded"
@@ -57,7 +57,7 @@ export default function RecurringPage({ storage, categories, budgetId, onNavigat
       )}
 
       {loading ? (
-        <p className="text-sm text-gray-400 text-center py-10">Lädt…</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-10">Lädt…</p>
       ) : list.length === 0 ? (
         <EmptyState
           message="Noch keine Daueraufträge vorhanden."
@@ -68,7 +68,7 @@ export default function RecurringPage({ storage, categories, budgetId, onNavigat
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wide">
+                <tr className="border-b border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">
                   <th className="text-left px-4 py-3 font-medium">Beschreibung</th>
                   <th className="text-left px-4 py-3 font-medium">Betrag</th>
                   <th className="text-left px-4 py-3 font-medium">Kategorie</th>
@@ -80,20 +80,20 @@ export default function RecurringPage({ storage, categories, budgetId, onNavigat
               </thead>
               <tbody>
                 {list.map(r => (
-                  <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-900">{r.description}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                  <tr key={r.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                    <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">{r.description}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-gray-700 dark:text-gray-300">
                       <span style={r.type === 'income' ? { color: ACCENT } : undefined}>
                         {r.type === 'income' ? '+' : '−'} {formatEuro(r.amount)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-gray-600">{r.category}</td>
-                    <td className="px-4 py-3 text-gray-600">{FREQ_LABELS[r.frequency]}</td>
-                    <td className={`px-4 py-3 ${r.nextDue <= today && r.isActive ? 'text-red-600 font-medium' : 'text-gray-600'}`}>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{r.category}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{FREQ_LABELS[r.frequency]}</td>
+                    <td className={`px-4 py-3 ${r.nextDue <= today && r.isActive ? 'text-red-600 dark:text-red-400 font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
                       {formatDate(r.nextDue)}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`text-xs px-2 py-0.5 rounded ${r.isActive ? 'bg-gray-100 text-gray-700' : 'bg-gray-100 text-gray-400'}`}>
+                      <span className={`text-xs px-2 py-0.5 rounded ${r.isActive ? 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300' : 'bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500'}`}>
                         {r.isActive ? 'Aktiv' : 'Pausiert'}
                       </span>
                     </td>
@@ -105,7 +105,7 @@ export default function RecurringPage({ storage, categories, budgetId, onNavigat
                             await storage.updateRecurring(r.id, { isActive: !r.isActive });
                             await load();
                           }}
-                          className="text-xs px-2 py-1 border border-gray-200 rounded hover:bg-gray-50 text-gray-600"
+                          className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
                         >
                           {r.isActive ? 'Pausieren' : 'Aktivieren'}
                         </button>
@@ -113,15 +113,15 @@ export default function RecurringPage({ storage, categories, budgetId, onNavigat
                           <>
                             <button
                               onClick={async () => { await storage.deleteRecurring(r.id); await load(); setDeleteConfirm(null); }}
-                              className="text-xs px-2 py-1 bg-gray-900 text-white rounded"
+                              className="text-xs px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded"
                             >Ja</button>
                             <button onClick={() => setDeleteConfirm(null)}
-                              className="text-xs px-2 py-1 border border-gray-200 rounded">Nein</button>
+                              className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300">Nein</button>
                           </>
                         ) : (
                           <button
                             onClick={() => setDeleteConfirm(r.id)}
-                            className="p-1 text-gray-300 hover:text-gray-600"
+                            className="p-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -191,12 +191,12 @@ function RecurringForm({
 
   return (
     <Card className="p-5">
-      <h2 className="text-sm font-semibold text-gray-800 mb-4">Neuer Dauerauftrag</h2>
+      <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4">Neuer Dauerauftrag</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="flex rounded border border-gray-200 overflow-hidden">
+        <div className="flex rounded border border-gray-200 dark:border-gray-600 overflow-hidden">
           {(['expense', 'income'] as const).map(t => (
             <button key={t} type="button" onClick={() => setType(t)}
-              className={`flex-1 py-2 text-sm font-medium transition-colors ${type === t ? 'text-white' : 'text-gray-600 hover:bg-gray-50'}`}
+              className={`flex-1 py-2 text-sm font-medium transition-colors ${type === t ? 'text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
               style={type === t ? { backgroundColor: ACCENT } : undefined}>
               {t === 'expense' ? 'Ausgabe' : 'Einnahme'}
             </button>
@@ -204,14 +204,14 @@ function RecurringForm({
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Betrag (€)</label>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Betrag (€)</label>
             <input value={amount} onChange={e => setAmount(e.target.value)} placeholder="0,00" required inputMode="decimal"
-              className="w-full border border-gray-200 rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#4A6FA5]" />
+              className="w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-[#4A6FA5]" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Frequenz</label>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Frequenz</label>
             <select value={freq} onChange={e => setFreq(e.target.value as Frequency)}
-              className="w-full border border-gray-200 rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#4A6FA5] bg-white">
+              className="w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]">
               {(Object.entries(FREQ_LABELS) as [Frequency, string][]).map(([v, l]) => (
                 <option key={v} value={v}>{l}</option>
               ))}
@@ -219,28 +219,28 @@ function RecurringForm({
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Kategorie</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Kategorie</label>
           <select value={category} onChange={e => setCategory(e.target.value)} required
-            className="w-full border border-gray-200 rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#4A6FA5] bg-white">
+            className="w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]">
             <option value="">Kategorie wählen</option>
             {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Beschreibung</label>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Beschreibung</label>
           <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="z. B. Netflix Abo" required
-            className="w-full border border-gray-200 rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#4A6FA5]" />
+            className="w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-[#4A6FA5]" />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Startdatum</label>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Startdatum</label>
             <input type="date" value={startDate} onChange={e => setStart(e.target.value)}
-              className="w-full border border-gray-200 rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#4A6FA5]" />
+              className="w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">Enddatum (optional)</label>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Enddatum (optional)</label>
             <input type="date" value={endDate} onChange={e => setEnd(e.target.value)}
-              className="w-full border border-gray-200 rounded px-3 py-2.5 text-sm focus:outline-none focus:border-[#4A6FA5]" />
+              className="w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]" />
           </div>
         </div>
         <div className="flex gap-3">
@@ -250,7 +250,7 @@ function RecurringForm({
             {saving ? 'Speichern…' : 'Dauerauftrag erstellen'}
           </button>
           <button type="button" onClick={onCancel}
-            className="px-4 py-2 text-sm border border-gray-200 rounded text-gray-600 hover:bg-gray-50">
+            className="px-4 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
             Abbrechen
           </button>
         </div>

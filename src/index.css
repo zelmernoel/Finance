@@ -1,18 +1,30 @@
 @import "tailwindcss";
 
+/* Class-based dark mode: dark: classes apply when html has .dark */
+@variant dark (&:where(.dark, .dark *));
+
 * {
   box-sizing: border-box;
 }
 
-body {
-  margin: 0;
+html {
   background-color: #ffffff;
   color: #111827;
+}
+
+html.dark {
+  background-color: #111827;
+  color: #f9fafb;
+}
+
+body {
+  margin: 0;
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
+  background-color: inherit;
+  color: inherit;
 }
 
 #root {
   min-height: 100vh;
-  background-color: #ffffff;
 }

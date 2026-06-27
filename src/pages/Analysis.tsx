@@ -130,11 +130,11 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
       {/* ── Kategorie-Ranking ─────────────────────────────────────────── */}
       <ErrorBoundary>
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">Kategorie-Ranking</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Kategorie-Ranking</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-xs text-gray-500 uppercase tracking-wide border-b border-gray-200">
+                <tr className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide border-b border-gray-200 dark:border-gray-700">
                   <th className="text-left py-2 pl-0 font-medium">Kategorie</th>
                   <th className="text-right py-2 font-medium">Gesamt</th>
                   <th className="text-right py-2 font-medium">Ø/Monat</th>
@@ -147,29 +147,29 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
               <tbody>
                 {categoryRanking.map((row, i) => (
                   <tr key={row.cat}
-                    className={`border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${selectedCat === row.cat ? 'bg-blue-50' : ''}`}
+                    className={`border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 ${selectedCat === row.cat ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
                     onClick={() => setSelectedCat(selectedCat === row.cat ? null : row.cat)}>
                     <td className="py-2 pl-0">
                       <div className="flex items-center gap-2">
                         <div className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                           style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
-                        <span className="font-medium text-gray-900">{row.cat}</span>
+                        <span className="font-medium text-gray-900 dark:text-gray-100">{row.cat}</span>
                       </div>
                     </td>
-                    <td className="py-2 text-right text-gray-700">{formatEuro(row.total)}</td>
-                    <td className="py-2 text-right text-gray-500">{formatEuro(row.avg)}</td>
-                    <td className="py-2 text-right text-gray-500">{row.pct.toFixed(1)} %</td>
+                    <td className="py-2 text-right text-gray-700 dark:text-gray-300">{formatEuro(row.total)}</td>
+                    <td className="py-2 text-right text-gray-500 dark:text-gray-400">{formatEuro(row.avg)}</td>
+                    <td className="py-2 text-right text-gray-500 dark:text-gray-400">{row.pct.toFixed(1)} %</td>
                     <td className="py-2 text-right">
                       {row.trend !== null ? (
-                        <span className={`text-xs font-medium ${row.trend > 5 ? 'text-red-500' : row.trend < -5 ? 'text-green-600' : 'text-gray-400'}`}>
+                        <span className={`text-xs font-medium ${row.trend > 5 ? 'text-red-500' : row.trend < -5 ? 'text-green-600' : 'text-gray-400 dark:text-gray-500'}`}>
                           {row.trend > 0 ? '↑' : '↓'} {Math.abs(row.trend).toFixed(0)} %
                         </span>
-                      ) : <span className="text-xs text-gray-300">–</span>}
+                      ) : <span className="text-xs text-gray-300 dark:text-gray-600">–</span>}
                     </td>
                     <td className="py-2 text-right">
                       {row.monthlyBudget ? (
                         <div className="flex items-center gap-2 justify-end">
-                          <div className="w-16 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                          <div className="w-16 bg-gray-100 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
                             <div
                               className="h-full rounded-full"
                               style={{
@@ -178,7 +178,7 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
                               }}
                             />
                           </div>
-                          <span className="text-xs text-gray-400 whitespace-nowrap">
+                          <span className="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">
                             {formatEuro(row.monthlyBudget)}
                           </span>
                         </div>
@@ -193,15 +193,15 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
                                 onUpdateCategory(row.catId, { monthlyBudget: n });
                               }
                             }}
-                            className="text-xs text-gray-400 hover:text-gray-700 underline underline-offset-2"
+                            className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline underline-offset-2"
                           >
                             + Setzen
                           </button>
-                        ) : <span className="text-xs text-gray-300">–</span>
+                        ) : <span className="text-xs text-gray-300 dark:text-gray-600">–</span>
                       )}
                     </td>
                     <td className="py-2 pl-2">
-                      <svg className={`w-3.5 h-3.5 text-gray-400 transition-transform ${selectedCat === row.cat ? 'rotate-180' : ''}`}
+                      <svg className={`w-3.5 h-3.5 text-gray-400 dark:text-gray-500 transition-transform ${selectedCat === row.cat ? 'rotate-180' : ''}`}
                         fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
@@ -214,8 +214,8 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
 
           {/* Category detail chart */}
           {selectedCat && (
-            <div className="mt-5 pt-5 border-t border-gray-100">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">
+            <div className="mt-5 pt-5 border-t border-gray-100 dark:border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
                 Ausgabenverlauf: <span style={{ color: ACCENT }}>{selectedCat}</span>
               </h3>
               <ResponsiveContainer width="100%" height={180}>
@@ -235,7 +235,7 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
       {/* ── Top 5 ────────────────────────────────────────────────────── */}
       <ErrorBoundary>
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">Top 5 Ausgabenkategorien: Lfd. Monat vs. Vormonat</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Top 5 Ausgabenkategorien: Lfd. Monat vs. Vormonat</h2>
           {top5Data.length === 0 ? (
             <EmptyState message="Keine Ausgaben in diesem Monat." />
           ) : (
@@ -256,11 +256,11 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
       {/* ── Ø Ausgaben ───────────────────────────────────────────────── */}
       <ErrorBoundary>
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">Ø Monatliche Ausgaben pro Kategorie</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Ø Monatliche Ausgaben pro Kategorie</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-xs text-gray-500 uppercase tracking-wide border-b border-gray-200">
+                <tr className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide border-b border-gray-200 dark:border-gray-700">
                   <th className="text-left py-2 font-medium">Kategorie</th>
                   <th className="text-right py-2 font-medium">Ø / Monat</th>
                   <th className="text-right py-2 font-medium">Gesamt</th>
@@ -268,13 +268,13 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
               </thead>
               <tbody>
                 {categoryRanking.map((row, i) => (
-                  <tr key={row.cat} className="border-b border-gray-100">
-                    <td className="py-2 flex items-center gap-2">
+                  <tr key={row.cat} className="border-b border-gray-100 dark:border-gray-700">
+                    <td className="py-2 flex items-center gap-2 text-gray-800 dark:text-gray-200">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
                       {row.cat}
                     </td>
-                    <td className="py-2 text-right font-medium">{formatEuro(row.avg)}</td>
-                    <td className="py-2 text-right text-gray-500">{formatEuro(row.total)}</td>
+                    <td className="py-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatEuro(row.avg)}</td>
+                    <td className="py-2 text-right text-gray-500 dark:text-gray-400">{formatEuro(row.total)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -299,7 +299,7 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
       {/* ── Sparrate ─────────────────────────────────────────────────── */}
       <ErrorBoundary>
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">Sparrate pro Monat</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sparrate pro Monat</h2>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={savingTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
@@ -315,8 +315,8 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
       {/* ── Ausgabenrhythmus ─────────────────────────────────────────── */}
       <ErrorBoundary>
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-1">Ausgabenrhythmus</h2>
-          <p className="text-xs text-gray-400 mb-4">Wochentag × Tag des Monats — Punktgröße = Betrag</p>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Ausgabenrhythmus</h2>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">Wochentag × Tag des Monats — Punktgröße = Betrag</p>
           {scatterData.length === 0 ? <EmptyState message="Keine Ausgaben vorhanden." /> : (
             <ResponsiveContainer width="100%" height={240}>
               <ScatterChart>
@@ -335,10 +335,10 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
                     if (!payload?.length) return null;
                     const d = payload[0].payload as { label: string; amount: number; weekday: number; dayOfMonth: number };
                     return (
-                      <div className="bg-white border border-gray-200 rounded p-2 text-xs shadow-sm">
-                        <p className="font-medium">{d.label}</p>
-                        <p>{formatEuro(d.amount)}</p>
-                        <p className="text-gray-400">{WEEKDAYS[d.weekday]}, Tag {d.dayOfMonth}</p>
+                      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded p-2 text-xs shadow-sm">
+                        <p className="font-medium text-gray-900 dark:text-gray-100">{d.label}</p>
+                        <p className="text-gray-700 dark:text-gray-300">{formatEuro(d.amount)}</p>
+                        <p className="text-gray-400 dark:text-gray-500">{WEEKDAYS[d.weekday]}, Tag {d.dayOfMonth}</p>
                       </div>
                     );
                   }}
@@ -359,12 +359,12 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
       {/* ── YTD ──────────────────────────────────────────────────────── */}
       <ErrorBoundary>
         <Card className="p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4">Jahresübersicht {year}</h2>
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Jahresübersicht {year}</h2>
           {ytdData.length === 0 ? <EmptyState message="Keine Daten für dieses Jahr." /> : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-xs text-gray-500 uppercase tracking-wide border-b border-gray-200">
+                  <tr className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide border-b border-gray-200 dark:border-gray-700">
                     <th className="text-left py-2 font-medium">Monat</th>
                     <th className="text-right py-2 font-medium">Einnahmen</th>
                     <th className="text-right py-2 font-medium">Ausgaben</th>
@@ -376,21 +376,21 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
                   {ytdData.map(row => {
                     const rate = row.income > 0 ? (row.savings / row.income) * 100 : 0;
                     return (
-                      <tr key={row.label} className="border-b border-gray-100">
-                        <td className="py-2 text-gray-700">{row.label}</td>
+                      <tr key={row.label} className="border-b border-gray-100 dark:border-gray-700">
+                        <td className="py-2 text-gray-700 dark:text-gray-300">{row.label}</td>
                         <td className="py-2 text-right" style={{ color: ACCENT }}>{formatEuro(row.income)}</td>
-                        <td className="py-2 text-right text-gray-900">{formatEuro(row.expense)}</td>
-                        <td className="py-2 text-right font-medium">{formatEuro(row.savings)}</td>
-                        <td className="py-2 text-right text-xs text-gray-500">{rate.toFixed(1)} %</td>
+                        <td className="py-2 text-right text-gray-900 dark:text-gray-100">{formatEuro(row.expense)}</td>
+                        <td className="py-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatEuro(row.savings)}</td>
+                        <td className="py-2 text-right text-xs text-gray-500 dark:text-gray-400">{rate.toFixed(1)} %</td>
                       </tr>
                     );
                   })}
-                  <tr className="border-t-2 border-gray-300 font-semibold">
+                  <tr className="border-t-2 border-gray-300 dark:border-gray-600 font-semibold text-gray-900 dark:text-gray-100">
                     <td className="py-2">Gesamt</td>
                     <td className="py-2 text-right" style={{ color: ACCENT }}>{formatEuro(ytdData.reduce((s, r) => s + r.income, 0))}</td>
                     <td className="py-2 text-right">{formatEuro(ytdData.reduce((s, r) => s + r.expense, 0))}</td>
                     <td className="py-2 text-right">{formatEuro(ytdData.reduce((s, r) => s + r.savings, 0))}</td>
-                    <td className="py-2 text-right text-xs text-gray-500">
+                    <td className="py-2 text-right text-xs text-gray-500 dark:text-gray-400">
                       {(() => {
                         const inc = ytdData.reduce((s, r) => s + r.income, 0);
                         const sav = ytdData.reduce((s, r) => s + r.savings, 0);
