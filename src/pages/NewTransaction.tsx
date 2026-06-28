@@ -35,6 +35,7 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
   const [notes, setNotes]         = useState<string[]>(['']);
   const [loading, setLoading]     = useState(false);
   const [success, setSuccess]     = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [newCatName, setNewCat]   = useState('');
   const [showNewCat, setShowNewCat] = useState(false);
 
@@ -74,6 +75,7 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
     if (isNaN(parsed) || parsed <= 0) return;
 
     setLoading(true);
+    setSubmitError(null);
     try {
       const noteValue = notes.filter(n => n.trim()).join('\n') || undefined;
       const tx: Transaction = {
@@ -103,6 +105,8 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
       setReceiptDataUrl(null);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 2500);
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : 'Fehler beim Speichern');
     } finally {
       setLoading(false);
     }
@@ -306,6 +310,11 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
             <div className="text-center text-sm text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-600 rounded py-2">
               Transaktion erfolgreich gespeichert.
             </div>
+          )}
+          {submitError && (
+            <p className="text-sm text-red-600 dark:text-red-400 text-center">
+              {submitError}
+            </p>
           )}
         </form>
       </Card>

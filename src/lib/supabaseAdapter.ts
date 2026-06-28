@@ -171,7 +171,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
         .eq('budget_id', budgetId)
         .order('date', { ascending: false })
         .order('created_at', { ascending: false });
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return (data ?? []).map(r => rowToTx(r as Record<string, unknown>));
     },
 
@@ -184,21 +184,21 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
           category: t.category, description: t.description, note: t.note ?? '',
         })
         .select().single();
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return rowToTx(data as Record<string, unknown>);
     },
 
     async deleteTransaction(id) {
       const { error } = await supabase.from('transactions')
         .delete().eq('id', id).eq('user_id', userId);
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
     },
 
     async deleteAllTransactions(ids) {
       if (!ids.length) return;
       const { error } = await supabase.from('transactions')
         .delete().in('id', ids).eq('user_id', userId).eq('budget_id', budgetId);
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
     },
 
     async importTransactions(txs) {
@@ -209,7 +209,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
         category: t.category, description: t.description, note: t.note ?? '',
       }));
       const { data, error } = await supabase.from('transactions').insert(rows).select();
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return (data ?? []).map(r => rowToTx(r as Record<string, unknown>));
     },
 
@@ -220,12 +220,9 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
         .from('categories').select('*')
         .eq('user_id', userId).eq('budget_id', budgetId)
         .order('type').order('name');
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
 
       if (!data || data.length === 0) {
-        // BUG 2 FIX: check for ANY categories for this user first to avoid seeding twice.
-        // Use upsert + ignoreDuplicates to handle the rare race condition where two calls
-        // reach this point simultaneously with the same deterministic IDs.
         const { data: existing } = await supabase
           .from('categories')
           .select('id')
@@ -242,7 +239,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
           .from('categories')
           .upsert(rows, { onConflict: 'id', ignoreDuplicates: true })
           .select();
-        if (err2) throw new Error(err2.message);
+        if (err2) { console.error('[Supabase Error]', err2.message, err2); throw new Error(err2.message); }
         return (seeded ?? []).map(r => rowToCat(r as Record<string, unknown>));
       }
       return data.map(r => rowToCat(r as Record<string, unknown>));
@@ -253,7 +250,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
         .from('categories')
         .insert({ id: c.id, user_id: userId, budget_id: budgetId, name: c.name, type: c.type })
         .select().single();
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return rowToCat(data as Record<string, unknown>);
     },
 
@@ -263,14 +260,14 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       if (patch.monthlyBudget !== undefined) dbPatch.monthly_budget = patch.monthlyBudget;
       const { data, error } = await supabase.from('categories')
         .update(dbPatch).eq('id', id).eq('user_id', userId).select().single();
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return rowToCat(data as Record<string, unknown>);
     },
 
     async deleteCategory(id) {
       const { error } = await supabase.from('categories')
         .delete().eq('id', id).eq('user_id', userId);
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
     },
 
     // ── Settings ──────────────────────────────────────────────────────────────
@@ -278,17 +275,15 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
     async getSettings() {
       const { data, error } = await supabase.from('settings')
         .select('*').eq('user_id', userId).eq('budget_id', budgetId).maybeSingle();
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       if (!data) {
-        // BUG 1 FIX: use upsert so a second budget for the same user never
-        // hits the unique constraint "settings_user_id_key".
         const { data: created, error: e2 } = await supabase.from('settings')
           .upsert(
             { user_id: userId, budget_id: budgetId, starting_balance: 0, name: '' },
             { onConflict: 'user_id' },
           )
           .select().single();
-        if (e2) throw new Error(e2.message);
+        if (e2) { console.error('[Supabase Error]', e2.message, e2); throw new Error(e2.message); }
         return rowToSettings(created as Record<string, unknown>);
       }
       return rowToSettings(data as Record<string, unknown>);
@@ -299,10 +294,9 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       if (patch.startingBalance !== undefined) dbPatch.starting_balance = patch.startingBalance;
       if (patch.name !== undefined)            dbPatch.name             = patch.name;
       if (patch.monthStart  !== undefined)     dbPatch.month_start      = patch.monthStart;
-      // onConflict must match the actual DB constraint (user_id, not user_id+budget_id)
       const { data, error } = await supabase.from('settings')
         .upsert(dbPatch, { onConflict: 'user_id' }).select().single();
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return rowToSettings(data as Record<string, unknown>);
     },
 
@@ -312,7 +306,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       const { data, error } = await supabase.from('recurring_transactions')
         .select('*').eq('user_id', userId).eq('budget_id', budgetId)
         .order('created_at', { ascending: false });
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return (data ?? []).map(r => rowToRecurring(r as Record<string, unknown>));
     },
 
@@ -327,7 +321,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
           last_executed: r.lastExecuted ?? null, is_active: r.isActive,
         })
         .select().single();
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return rowToRecurring(data as Record<string, unknown>);
     },
 
@@ -343,14 +337,14 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       if (patch.frequency !== undefined)    dbPatch.frequency     = patch.frequency;
       const { data, error } = await supabase.from('recurring_transactions')
         .update(dbPatch).eq('id', id).eq('user_id', userId).select().single();
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return rowToRecurring(data as Record<string, unknown>);
     },
 
     async deleteRecurring(id) {
       const { error } = await supabase.from('recurring_transactions')
         .delete().eq('id', id).eq('user_id', userId);
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
     },
   };
 }
@@ -362,7 +356,7 @@ export function createSupabaseBudgetStorage(userId: string): BudgetStorage {
     async getBudgets() {
       const { data, error } = await supabase.from('budgets')
         .select('*').eq('user_id', userId).order('created_at');
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return (data ?? []).map(r => rowToBudget(r as Record<string, unknown>));
     },
     async addBudget(b) {
@@ -372,7 +366,7 @@ export function createSupabaseBudgetStorage(userId: string): BudgetStorage {
           starting_balance: b.startingBalance, color: b.color,
         })
         .select().single();
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return rowToBudget(data as Record<string, unknown>);
     },
     async updateBudget(id, patch) {
@@ -383,13 +377,13 @@ export function createSupabaseBudgetStorage(userId: string): BudgetStorage {
       if (patch.color !== undefined)           dbPatch.color            = patch.color;
       const { data, error } = await supabase.from('budgets')
         .update(dbPatch).eq('id', id).eq('user_id', userId).select().single();
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return rowToBudget(data as Record<string, unknown>);
     },
     async deleteBudget(id) {
       const { error } = await supabase.from('budgets')
         .delete().eq('id', id).eq('user_id', userId);
-      if (error) throw new Error(error.message);
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
     },
   };
 }

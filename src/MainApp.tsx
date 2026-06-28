@@ -109,8 +109,14 @@ export default function MainApp() {
 
   async function handleCreate(t: Transaction) {
     if (!storage) return;
-    const created = await storage.addTransaction(t);
-    setTx(prev => [created, ...prev].sort((a, b) => b.date.localeCompare(a.date)));
+    try {
+      const created = await storage.addTransaction(t);
+      setTx(prev => [created, ...prev].sort((a, b) =>
+        new Date(b.date).getTime() - new Date(a.date).getTime()));
+      showToast('Transaktion gespeichert', 'success');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Fehler beim Speichern', 'error');
+    }
   }
 
   async function handleDelete(id: string) {
