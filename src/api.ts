@@ -21,7 +21,7 @@ function rowToTransaction(row: Record<string, unknown>): Transaction {
     date:        String(row.date),
     type:        row.type as 'income' | 'expense',
     amount:      toNum(row.amount),
-    category:    String(row.category ?? ''),
+    category:    String(row.category_id ?? ''),
     description: String(row.description ?? ''),
     note:        row.note != null ? String(row.note) : '',
   };
@@ -60,7 +60,7 @@ export async function createTransaction(t: Transaction): Promise<Transaction> {
       date:        t.date,
       type:        t.type,
       amount:      t.amount,
-      category:    t.category,
+      category_id: t.category,
       description: t.description,
       note:        t.note ?? '',
     })
@@ -100,7 +100,7 @@ export async function importTransactions(txs: Transaction[]): Promise<Transactio
     date:        t.date,
     type:        t.type,
     amount:      t.amount,
-    category:    t.category,
+    category_id: t.category,
     description: t.description,
     note:        t.note ?? '',
   }));
