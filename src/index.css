@@ -10,6 +10,9 @@
 html {
   background-color: #ffffff;
   color: #111827;
+  /* Prevent stray horizontal overflow from making the whole page zoomable on mobile.
+     `clip` (not `hidden`) keeps position: sticky working on the desktop nav. */
+  overflow-x: clip;
 }
 
 html.dark {
@@ -23,6 +26,8 @@ body {
   -webkit-font-smoothing: antialiased;
   background-color: inherit;
   color: inherit;
+  overflow-x: clip;
+  max-width: 100%;
 }
 
 #root {

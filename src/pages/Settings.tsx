@@ -43,9 +43,9 @@ function ActionRow({
 }) {
   return (
     <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-700 last:border-0 gap-4">
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-3 min-w-0">
         <div className="mt-0.5 text-gray-400 dark:text-gray-500 flex-shrink-0">{icon}</div>
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{title}</p>
           <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{description}</p>
         </div>
@@ -415,8 +415,8 @@ export default function SettingsPage({
               <div className="mt-0.5 text-gray-400 dark:text-gray-500 flex-shrink-0"><UploadIcon /></div>
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100">CSV importieren</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-                  Format: <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">Datum;Typ;Betrag;Kategorie;Beschreibung;Notiz</code>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 break-words">
+                  Format: <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded break-all">Datum;Typ;Betrag;Kategorie;Beschreibung;Notiz</code>
                 </p>
               </div>
             </div>
@@ -499,12 +499,12 @@ export default function SettingsPage({
                   className="border border-gray-200 dark:border-gray-600 rounded px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5] w-28 mb-3" />
               )}
               {delPeriodType === 'range' && (
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex flex-wrap items-center gap-2 mb-3">
                   <input type="date" value={delFrom} onChange={e => { setDelFrom(e.target.value); setDelConfirmStep(0); }}
-                    className="border border-gray-200 dark:border-gray-600 rounded px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]" />
+                    className="min-w-0 border border-gray-200 dark:border-gray-600 rounded px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]" />
                   <span className="text-xs text-gray-400">bis</span>
                   <input type="date" value={delTo} onChange={e => { setDelTo(e.target.value); setDelConfirmStep(0); }}
-                    className="border border-gray-200 dark:border-gray-600 rounded px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]" />
+                    className="min-w-0 border border-gray-200 dark:border-gray-600 rounded px-3 py-2 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]" />
                 </div>
               )}
               {/* Action */}
