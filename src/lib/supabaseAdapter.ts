@@ -16,7 +16,7 @@ function rowToTx(row: Record<string, unknown>): Transaction {
     date:        String(row.date),
     type:        row.type as 'income' | 'expense',
     amount:      toNum(row.amount),
-    category:    String(row.category_id ?? ''),
+    category:    String(row.category ?? ''),
     description: String(row.description ?? ''),
     note:        row.note != null ? String(row.note) : '',
   };
@@ -181,7 +181,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
         .insert({
           id: t.id, user_id: userId, budget_id: budgetId,
           date: t.date, type: t.type, amount: t.amount,
-          category_id: t.category, description: t.description, note: t.note ?? '',
+          category: t.category, description: t.description, note: t.note ?? '',
         })
         .select().single();
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
@@ -206,7 +206,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       const rows = txs.map(t => ({
         id: t.id, user_id: userId, budget_id: budgetId,
         date: t.date, type: t.type, amount: t.amount,
-        category_id: t.category, description: t.description, note: t.note ?? '',
+        category: t.category, description: t.description, note: t.note ?? '',
       }));
       const { data, error } = await supabase.from('transactions').insert(rows).select();
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }

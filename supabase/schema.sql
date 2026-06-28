@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   date         DATE    NOT NULL,
   type         TEXT    NOT NULL CHECK (type IN ('income', 'expense')),
   amount       NUMERIC(12,2) NOT NULL CHECK (amount > 0),
-  category_id  TEXT    NOT NULL DEFAULT '',   -- speichert den Kategorie-NAMEN (App matcht per Name)
+  category     TEXT    NOT NULL DEFAULT '',
   description  TEXT    NOT NULL DEFAULT '',
   note         TEXT             DEFAULT '',
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
