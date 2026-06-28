@@ -16,7 +16,7 @@ const NAV_TABS: { id: Tab; label: string }[] = [
   { id: 'transactions', label: 'Transaktionen' },
   { id: 'analysis',     label: 'Auswertungen' },
   { id: 'recurring',    label: 'Daueraufträge' },
-  { id: 'budgets',      label: 'Budgets' },
+  { id: 'budgets',      label: 'Bereiche' },
 ];
 
 // ── Mobile bottom nav tabs ────────────────────────────────────────────────────
@@ -139,7 +139,7 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
                         onClick={() => { onTabChange('budgets'); setDropdown(false); }}
                         className="w-full text-left px-3 py-2 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
                       >
-                        Budgets verwalten →
+                        Bereiche verwalten →
                       </button>
                     </div>
                   </div>
@@ -299,7 +299,7 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
             <div className="mx-3 mb-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
               {([
                 { id: 'recurring' as Tab, label: 'Daueraufträge', desc: 'Wiederkehrende Buchungen verwalten' },
-                { id: 'budgets'   as Tab, label: 'Budgets',        desc: 'Mehrere Budgets verwalten' },
+                { id: 'budgets'   as Tab, label: 'Bereiche',       desc: 'Privates & anderes trennen' },
                 { id: 'settings'  as Tab, label: 'Einstellungen',  desc: 'Kategorien, Darstellung, Export' },
               ]).map((item, i, arr) => (
                 <button
