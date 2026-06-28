@@ -8,7 +8,7 @@ import {
   createLocalBudgetStorage,
   GUEST_BUDGETS_KEY, GUEST_ACTIVE_KEY,
 } from '../lib/localStorageAdapter';
-import { createSupabaseBudgetStorage } from '../lib/supabaseAdapter';
+import { createSupabaseBudgetStorage, initializeNewUser } from '../lib/supabaseAdapter';
 
 const ACCENT = '#4A6FA5';
 
@@ -45,11 +45,17 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   const refreshBudgets = useCallback(async () => {
     try {
       setLoadingBudgets(true);
+
+      // Für eingeloggte User: Budget → Settings → Kategorien in korrekter Reihenfolge sicherstellen
+      if (user) {
+        await initializeNewUser(user.id);
+      }
+
       const storage = getStorage();
       let list = await storage.getBudgets();
 
-      // Auto-create default budget if none exist
-      if (list.length === 0) {
+      // Nur für Gast-User: Default-Budget anlegen wenn keines existiert
+      if (list.length === 0 && !user) {
         const defaultBudget: Budget = {
           id: crypto.randomUUID(),
           name: 'Persönlich',

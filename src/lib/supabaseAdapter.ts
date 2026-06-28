@@ -83,6 +83,80 @@ const DEFAULT_CATEGORIES = [
   { name: 'Sonstiges',    type: 'income'  },
 ] as const;
 
+// ── initializeNewUser ─────────────────────────────────────────────────────────
+// Garantiert die korrekte Reihenfolge: Budget → Settings → Kategorien.
+// Muss einmalig nach Login / Session-Restore aufgerufen werden.
+// Gibt die budgetId zurück (bestehend oder neu erstellt).
+
+export async function initializeNewUser(userId: string): Promise<string | null> {
+  // Bereinigung: verwaiste Settings ohne budget_id können FK-Fehler verursachen
+  await supabase
+    .from('settings')
+    .delete()
+    .eq('user_id', userId)
+    .is('budget_id', null);
+
+  // Schritt 1: Bereits initialisiert?
+  const { data: existing } = await supabase
+    .from('budgets')
+    .select('id')
+    .eq('user_id', userId)
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) return String(existing.id);
+
+  // Schritt 2: Default-Budget erstellen
+  const { data: budget, error: budgetError } = await supabase
+    .from('budgets')
+    .insert({
+      id: crypto.randomUUID(),
+      user_id: userId,
+      name: 'Persönlich',
+      type: 'personal',
+      starting_balance: 0,
+      color: '#4A6FA5',
+    })
+    .select()
+    .single();
+
+  if (budgetError || !budget) {
+    console.error('Budget-Fehler bei Initialisierung:', budgetError);
+    return null;
+  }
+
+  const budgetId = String(budget.id);
+
+  // Schritt 3: Settings mit budget_id anlegen
+  await supabase
+    .from('settings')
+    .upsert(
+      { user_id: userId, budget_id: budgetId, starting_balance: 0, name: '' },
+      { onConflict: 'user_id' },
+    );
+
+  // Schritt 4: Default-Kategorien mit budget_id anlegen
+  const defaultCats = [
+    { id: `cat-exp-1-${userId}`, name: 'Lebensmittel',  type: 'expense' },
+    { id: `cat-exp-2-${userId}`, name: 'Transport',      type: 'expense' },
+    { id: `cat-exp-3-${userId}`, name: 'Freizeit',       type: 'expense' },
+    { id: `cat-exp-4-${userId}`, name: 'Kleidung',       type: 'expense' },
+    { id: `cat-exp-5-${userId}`, name: 'Technik',        type: 'expense' },
+    { id: `cat-exp-6-${userId}`, name: 'Bildung',        type: 'expense' },
+    { id: `cat-exp-7-${userId}`, name: 'Sonstiges',      type: 'expense' },
+    { id: `cat-inc-1-${userId}`, name: 'Lohn',           type: 'income'  },
+    { id: `cat-inc-2-${userId}`, name: 'Nebeneinkommen', type: 'income'  },
+    { id: `cat-inc-3-${userId}`, name: 'Geschenk',       type: 'income'  },
+    { id: `cat-inc-4-${userId}`, name: 'Sonstiges',      type: 'income'  },
+  ].map(c => ({ ...c, user_id: userId, budget_id: budgetId }));
+
+  await supabase
+    .from('categories')
+    .upsert(defaultCats, { onConflict: 'id', ignoreDuplicates: true });
+
+  return budgetId;
+}
+
 // ── SupabaseAdapter (scoped to budgetId) ──────────────────────────────────────
 
 export function createSupabaseAdapter(userId: string, budgetId: string): StorageAdapter {
