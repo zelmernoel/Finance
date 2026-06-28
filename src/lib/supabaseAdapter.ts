@@ -132,7 +132,7 @@ export async function initializeNewUser(userId: string): Promise<string | null> 
     .from('settings')
     .upsert(
       { user_id: userId, budget_id: budgetId, starting_balance: 0, name: '' },
-      { onConflict: 'user_id' },
+      { onConflict: 'user_id,budget_id' },
     );
 
   // Schritt 4: Default-Kategorien mit budget_id anlegen
@@ -280,7 +280,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
         const { data: created, error: e2 } = await supabase.from('settings')
           .upsert(
             { user_id: userId, budget_id: budgetId, starting_balance: 0, name: '' },
-            { onConflict: 'user_id' },
+            { onConflict: 'user_id,budget_id' },
           )
           .select().single();
         if (e2) { console.error('[Supabase Error]', e2.message, e2); throw new Error(e2.message); }
@@ -295,7 +295,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       if (patch.name !== undefined)            dbPatch.name             = patch.name;
       if (patch.monthStart  !== undefined)     dbPatch.month_start      = patch.monthStart;
       const { data, error } = await supabase.from('settings')
-        .upsert(dbPatch, { onConflict: 'user_id' }).select().single();
+        .upsert(dbPatch, { onConflict: 'user_id,budget_id' }).select().single();
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return rowToSettings(data as Record<string, unknown>);
     },

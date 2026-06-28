@@ -10,13 +10,12 @@ interface NavigationProps {
   onTabChange: (tab: Tab) => void;
 }
 
-// Regular nav tabs for desktop (excludes 'new' and 'settings' — rendered separately)
+// Regular nav tabs for desktop (excludes 'new', 'settings', 'budgets' — rendered separately)
 const NAV_TABS: { id: Tab; label: string }[] = [
   { id: 'dashboard',    label: 'Dashboard' },
   { id: 'transactions', label: 'Transaktionen' },
   { id: 'analysis',     label: 'Auswertungen' },
   { id: 'recurring',    label: 'Daueraufträge' },
-  { id: 'budgets',      label: 'Bereiche' },
 ];
 
 // ── Mobile bottom nav tabs ────────────────────────────────────────────────────
@@ -85,6 +84,18 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
 
   // Close "Mehr" sheet when navigating away
   useEffect(() => { setMoreOpen(false); }, [activeTab]);
+
+  // Close budget dropdown on click outside
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    function handle(e: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [dropdownOpen]);
 
   async function handleSignOut() {
     setSigningOut(true);

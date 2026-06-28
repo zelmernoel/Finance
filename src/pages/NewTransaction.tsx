@@ -11,6 +11,7 @@ interface Props {
   categories: Category[];
   onSubmit: (t: Transaction) => Promise<void>;
   onAddCategory: (name: string, type: 'income' | 'expense') => Promise<void>;
+  onSuccess: (tab: 'dashboard' | 'recurring') => void;
   storage: StorageAdapter | null;
   budgetId: string;
 }
@@ -25,7 +26,7 @@ const FREQ_LABELS: Record<Frequency, string> = {
 const inputCls = 'w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-3 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-[#4A6FA5] min-h-[44px]';
 const labelCls = 'block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2';
 
-export default function NewTransaction({ categories, onSubmit, onAddCategory, storage, budgetId }: Props) {
+export default function NewTransaction({ categories, onSubmit, onAddCategory, onSuccess, storage, budgetId }: Props) {
   const today = new Date().toISOString().slice(0, 10);
   const [type, setType]           = useState<'income' | 'expense'>('expense');
   const [date, setDate]           = useState(today);
@@ -99,12 +100,16 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, st
         });
       }
 
+      const wasRecurring = isRecurring;
       setAmount(''); setDesc(''); setNotes(['']);
       setDate(today); setCategory('');
       setIsRecurring(false); setEndDate('');
       setReceiptDataUrl(null);
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 2500);
+      setTimeout(() => {
+        setSuccess(false);
+        onSuccess(wasRecurring ? 'recurring' : 'dashboard');
+      }, 800);
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : 'Fehler beim Speichern');
     } finally {

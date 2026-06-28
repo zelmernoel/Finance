@@ -266,6 +266,7 @@ export default function MainApp() {
             categories={categories}
             onSubmit={handleCreate}
             onAddCategory={handleAddCategory}
+            onSuccess={setTab}
             storage={storage}
             budgetId={activeBudgetId ?? ''}
           />
