@@ -91,7 +91,7 @@ export default function SettingsPage({
   onUpdateCategory, onImportTransactions, onResetAllTransactions,
   onDeleteTransactionsByPeriod,
 }: Props) {
-  const { user } = useAuth();
+  const { user, signOut } = useAuth();
   const { theme, setTheme } = useTheme();
   const { activeBudgetId } = useBudget();
 
@@ -690,36 +690,79 @@ export default function SettingsPage({
         </ul>
       </Card>
 
-      {/* ── Gast-Modus Hinweis (nur wenn nicht eingeloggt) ──────────────── */}
-      {!user && (
-        <Card className="p-6">
-          <SectionLabel>Konto</SectionLabel>
+      {/* ── Konto ───────────────────────────────────────────────────────── */}
+      <Card className="p-6">
+        <SectionLabel>Konto</SectionLabel>
+        {user ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{user.email}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Daten werden in der Cloud synchronisiert — auf allen deinen Geräten verfügbar.</p>
+              </div>
+            </div>
+            {/* Logout only shown on mobile — desktop has it in the top nav */}
+            <div className="lg:hidden pt-1">
+              <LogoutButton signOut={signOut} />
+            </div>
+          </div>
+        ) : (
           <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-4">
             <p className="text-sm text-amber-800 dark:text-amber-300 mb-3">
-              Du bist im <strong>Gast-Modus</strong>. Deine Daten werden nur lokal auf diesem Gerät gespeichert.
-              Registriere dich um deine Daten in der Cloud zu sichern und geräteübergreifend zu synchronisieren.
+              Du bist im <strong>Gast-Modus</strong>. Deine Daten werden nur lokal auf diesem Gerät gespeichert — kein anderes Gerät hat Zugriff.
+              Melde dich an, um deine Daten in der Cloud zu sichern und überall abzurufen.
             </p>
-            <Link
-              to="/signup"
-              className="inline-flex items-center text-sm font-semibold text-amber-900 dark:text-amber-400 underline underline-offset-2 hover:opacity-80"
-            >
-              Jetzt registrieren →
-            </Link>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                to="/login"
+                className="inline-flex items-center text-sm font-semibold text-amber-900 dark:text-amber-400 underline underline-offset-2 hover:opacity-80"
+              >
+                Anmelden →
+              </Link>
+              <Link
+                to="/signup"
+                className="inline-flex items-center text-sm font-semibold text-amber-900 dark:text-amber-400 underline underline-offset-2 hover:opacity-80"
+              >
+                Registrieren →
+              </Link>
+            </div>
           </div>
-        </Card>
-      )}
+        )}
+      </Card>
 
       {/* ── Über ────────────────────────────────────────────────────────── */}
       <Card className="p-6">
         <SectionLabel>Über diese App</SectionLabel>
-        <div className="text-sm text-gray-500 dark:text-gray-400 space-y-1">
-          <p>Finanzdaten sicher und privat verwalten — lokal oder in der Cloud mit Supabase.</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-            Stack: React · TypeScript · Tailwind CSS v4 · Recharts · Supabase
+        <div className="text-sm text-gray-500 dark:text-gray-400 space-y-2">
+          <p>
+            <strong className="text-gray-700 dark:text-gray-300">Angemeldet:</strong> Deine Daten liegen sicher in der Cloud und sind auf allen deinen Geräten abrufbar — Smartphone, Tablet, Computer.
+          </p>
+          <p>
+            <strong className="text-gray-700 dark:text-gray-300">Gast-Modus:</strong> Deine Daten bleiben nur auf diesem einen Gerät. Kein anderes Gerät hat Zugriff, und beim Löschen des Browsers sind sie weg.
           </p>
         </div>
       </Card>
     </div>
+  );
+}
+
+// ── LogoutButton (mobile Konto-Sektion) ──────────────────────────────────────
+
+function LogoutButton({ signOut }: { signOut: () => Promise<void> }) {
+  const [signingOut, setSigningOut] = useState(false);
+  return (
+    <button
+      onClick={async () => { setSigningOut(true); try { await signOut(); } finally { setSigningOut(false); } }}
+      disabled={signingOut}
+      className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-40"
+    >
+      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+          d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+      </svg>
+      {signingOut ? '…' : 'Abmelden'}
+    </button>
   );
 }
 

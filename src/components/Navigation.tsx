@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Tab } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useBudget } from '../context/BudgetContext';
@@ -76,6 +77,7 @@ const MOBILE_TABS = [
 export default function Navigation({ activeTab, onTabChange }: NavigationProps) {
   const { user, signOut } = useAuth();
   const { budgets, activeBudget, setActiveBudgetId } = useBudget();
+  const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
   const [dropdownOpen, setDropdown] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -319,6 +321,38 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
                   </svg>
                 </button>
               ))}
+
+              {/* Auth row */}
+              <div className="border-t border-gray-100 dark:border-gray-700">
+                {user ? (
+                  <div className="flex items-center gap-4 px-5 py-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-gray-400 dark:text-gray-500">Angemeldet als</p>
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{user.email}</p>
+                    </div>
+                    <button
+                      onClick={async () => { setMoreOpen(false); setSigningOut(true); try { await signOut(); } finally { setSigningOut(false); } }}
+                      disabled={signingOut}
+                      className="text-xs px-3 py-1.5 border border-gray-200 dark:border-gray-600 rounded text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-40 whitespace-nowrap"
+                    >
+                      {signingOut ? '…' : 'Abmelden'}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setMoreOpen(false); navigate('/login'); }}
+                    className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Anmelden</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Daten in der Cloud sichern & synchronisieren</p>
+                    </div>
+                    <svg className="w-4 h-4 text-gray-300 dark:text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </>
