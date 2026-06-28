@@ -121,9 +121,20 @@ export default function MainApp() {
 
   async function handleAddCategory(name: string, type: 'income' | 'expense') {
     if (!storage) return;
-    if (categories.some(c => c.name === name && c.type === type)) return;
-    const created = await storage.addCategory({ id: uuidv4(), name, type });
-    setCats(prev => [...prev, created]);
+    if (categories.some(c => c.name === name && c.type === type)) {
+      showToast(`Kategorie „${name}" existiert bereits.`, 'info');
+      return;
+    }
+    try {
+      const created = await storage.addCategory({ id: uuidv4(), name, type });
+      setCats(prev => [...prev, created]);
+    } catch (e) {
+      console.error('Kategorie-Fehler:', e);
+      showToast(
+        e instanceof Error ? e.message : 'Kategorie konnte nicht gespeichert werden.',
+        'error',
+      );
+    }
   }
 
   async function handleDeleteCategory(id: string) {

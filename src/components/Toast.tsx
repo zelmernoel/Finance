@@ -6,7 +6,7 @@ import {
 interface ToastItem {
   id: string;
   message: string;
-  type: 'info' | 'success' | 'warn';
+  type: 'info' | 'success' | 'warn' | 'error';
 }
 
 interface ToastContextValue {
@@ -44,7 +44,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map(t => (
           <div
             key={t.id}
-            className="pointer-events-auto flex items-start gap-3 bg-gray-900 text-white text-sm px-4 py-3 rounded-lg shadow-lg max-w-sm"
+            className={`pointer-events-auto flex items-start gap-3 text-white text-sm px-4 py-3 rounded-lg shadow-lg max-w-sm ${
+              t.type === 'error' ? 'bg-red-600' : 'bg-gray-900'
+            }`}
             style={{ animation: 'slideIn 0.2s ease-out' }}
           >
             <span className="flex-1">{t.message}</span>

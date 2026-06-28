@@ -151,6 +151,14 @@ export async function fetchCategories(): Promise<Category[]> {
 }
 
 async function seedDefaultCategories(userId: string): Promise<Category[]> {
+  // Guard: bail out if the user already has categories (prevents duplicate-PK on re-entry)
+  const { data: existing } = await supabase
+    .from('categories')
+    .select('id')
+    .eq('user_id', userId)
+    .limit(1);
+  if (existing && existing.length > 0) return [];
+
   const rows = DEFAULT_CATEGORIES.map((c, i) => ({
     id:      `cat-${c.type.slice(0, 3)}-${i + 1}-${userId.slice(0, 8)}`,
     user_id: userId,
@@ -159,7 +167,7 @@ async function seedDefaultCategories(userId: string): Promise<Category[]> {
   }));
   const { data, error } = await supabase
     .from('categories')
-    .insert(rows)
+    .upsert(rows, { onConflict: 'id', ignoreDuplicates: true })
     .select();
   if (error) throw new Error(error.message);
   return (data ?? []).map(r => ({
@@ -212,7 +220,7 @@ export async function fetchSettings(): Promise<Settings> {
 async function createDefaultSettings(userId: string): Promise<Settings> {
   const { data, error } = await supabase
     .from('settings')
-    .insert({ user_id: userId, starting_balance: 0, name: '' })
+    .upsert({ user_id: userId, starting_balance: 0, name: '' }, { onConflict: 'user_id' })
     .select()
     .single();
   if (error) throw new Error(error.message);

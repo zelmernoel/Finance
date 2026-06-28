@@ -36,6 +36,7 @@ function rowToSettings(row: Record<string, unknown>): Settings {
     id:              String(row.id),
     startingBalance: toNum(row.starting_balance),
     name:            String(row.name ?? ''),
+    monthStart:      row.month_start != null ? toNum(row.month_start) : undefined,
   };
 }
 
@@ -148,7 +149,9 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       if (error) throw new Error(error.message);
 
       if (!data || data.length === 0) {
-        // Check if this user already has categories in ANY budget before seeding defaults
+        // BUG 2 FIX: check for ANY categories for this user first to avoid seeding twice.
+        // Use upsert + ignoreDuplicates to handle the rare race condition where two calls
+        // reach this point simultaneously with the same deterministic IDs.
         const { data: existing } = await supabase
           .from('categories')
           .select('id')
@@ -162,7 +165,9 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
           name: c.name, type: c.type,
         }));
         const { data: seeded, error: err2 } = await supabase
-          .from('categories').insert(rows).select();
+          .from('categories')
+          .upsert(rows, { onConflict: 'id', ignoreDuplicates: true })
+          .select();
         if (err2) throw new Error(err2.message);
         return (seeded ?? []).map(r => rowToCat(r as Record<string, unknown>));
       }
@@ -201,8 +206,13 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
         .select('*').eq('user_id', userId).eq('budget_id', budgetId).maybeSingle();
       if (error) throw new Error(error.message);
       if (!data) {
+        // BUG 1 FIX: use upsert so a second budget for the same user never
+        // hits the unique constraint "settings_user_id_key".
         const { data: created, error: e2 } = await supabase.from('settings')
-          .insert({ user_id: userId, budget_id: budgetId, starting_balance: 0, name: '' })
+          .upsert(
+            { user_id: userId, budget_id: budgetId, starting_balance: 0, name: '' },
+            { onConflict: 'user_id' },
+          )
           .select().single();
         if (e2) throw new Error(e2.message);
         return rowToSettings(created as Record<string, unknown>);
@@ -213,9 +223,11 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
     async updateSettings(patch) {
       const dbPatch: Record<string, unknown> = { user_id: userId, budget_id: budgetId };
       if (patch.startingBalance !== undefined) dbPatch.starting_balance = patch.startingBalance;
-      if (patch.name !== undefined) dbPatch.name = patch.name;
+      if (patch.name !== undefined)            dbPatch.name             = patch.name;
+      if (patch.monthStart  !== undefined)     dbPatch.month_start      = patch.monthStart;
+      // onConflict must match the actual DB constraint (user_id, not user_id+budget_id)
       const { data, error } = await supabase.from('settings')
-        .upsert(dbPatch, { onConflict: 'user_id,budget_id' }).select().single();
+        .upsert(dbPatch, { onConflict: 'user_id' }).select().single();
       if (error) throw new Error(error.message);
       return rowToSettings(data as Record<string, unknown>);
     },
