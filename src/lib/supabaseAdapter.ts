@@ -188,6 +188,20 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       return rowToTx(data as Record<string, unknown>);
     },
 
+    async updateTransaction(id, patch) {
+      const dbPatch: Record<string, unknown> = {};
+      if (patch.date        !== undefined) dbPatch.date        = patch.date;
+      if (patch.type        !== undefined) dbPatch.type        = patch.type;
+      if (patch.amount      !== undefined) dbPatch.amount      = patch.amount;
+      if (patch.category    !== undefined) dbPatch.category    = patch.category;
+      if (patch.description !== undefined) dbPatch.description = patch.description;
+      if (patch.note        !== undefined) dbPatch.note        = patch.note;
+      const { data, error } = await supabase.from('transactions')
+        .update(dbPatch).eq('id', id).eq('user_id', userId).select().single();
+      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
+      return rowToTx(data as Record<string, unknown>);
+    },
+
     async deleteTransaction(id) {
       const { error } = await supabase.from('transactions')
         .delete().eq('id', id).eq('user_id', userId);

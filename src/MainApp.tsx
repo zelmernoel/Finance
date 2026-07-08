@@ -119,6 +119,13 @@ export default function MainApp() {
     }
   }
 
+  async function handleUpdateTransaction(id: string, patch: Partial<Omit<Transaction, 'id'>>) {
+    if (!storage) return;
+    const updated = await storage.updateTransaction(id, patch);
+    setTx(prev => prev.map(t => t.id === id ? updated : t)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+  }
+
   async function handleDelete(id: string) {
     if (!storage) return;
     await storage.deleteTransaction(id);
@@ -255,7 +262,9 @@ export default function MainApp() {
         {tab === 'transactions' && (
           <Transactions
             transactions={transactions}
+            categories={categories}
             onDelete={handleDelete}
+            onUpdate={handleUpdateTransaction}
             onNavigateToNew={() => setTab('new')}
             budgetName={activeBudget?.name ?? 'Budget'}
             userName={settings.name}

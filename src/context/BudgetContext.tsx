@@ -11,6 +11,7 @@ import {
 import { createSupabaseBudgetStorage, initializeNewUser } from '../lib/supabaseAdapter';
 
 const ACCENT = '#4A6FA5';
+const DEFAULT_BUDGET_KEY = 'finance:defaultBudget';
 
 // ── Context type ──────────────────────────────────────────────────────────────
 
@@ -18,8 +19,10 @@ interface BudgetContextValue {
   budgets: Budget[];
   activeBudgetId: string | null;
   activeBudget: Budget | null;
+  defaultBudgetId: string | null;
   loadingBudgets: boolean;
   setActiveBudgetId: (id: string) => void;
+  setDefaultBudgetId: (id: string) => void;
   createBudget: (name: string, type: Budget['type'], startingBalance: number, color: string) => Promise<Budget>;
   updateBudget: (id: string, patch: Partial<Budget>) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
@@ -34,6 +37,9 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [activeBudgetId, setActiveBudgetIdState] = useState<string | null>(null);
+  const [defaultBudgetId, setDefaultBudgetIdState] = useState<string | null>(
+    () => localStorage.getItem(DEFAULT_BUDGET_KEY)
+  );
   const [loadingBudgets, setLoadingBudgets] = useState(true);
 
   const getStorage = useCallback(() => {
@@ -70,11 +76,13 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
 
       setBudgets(list);
 
-      // Restore active budget id from localStorage
-      const storedActive = localStorage.getItem(GUEST_ACTIVE_KEY);
-      const validActive = storedActive && list.some(b => b.id === storedActive)
-        ? storedActive
-        : list[0].id;
+      // Prefer pinned default budget, then last active, then first
+      const storedDefault = localStorage.getItem(DEFAULT_BUDGET_KEY);
+      const storedActive  = localStorage.getItem(GUEST_ACTIVE_KEY);
+      const validActive =
+        (storedDefault && list.some(b => b.id === storedDefault) ? storedDefault : null) ??
+        (storedActive  && list.some(b => b.id === storedActive)  ? storedActive  : null) ??
+        list[0].id;
       setActiveBudgetIdState(validActive);
       localStorage.setItem(GUEST_ACTIVE_KEY, validActive);
     } catch (e) {
@@ -89,6 +97,13 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   function setActiveBudgetId(id: string) {
     setActiveBudgetIdState(id);
     localStorage.setItem(GUEST_ACTIVE_KEY, id);
+  }
+
+  function setDefaultBudgetId(id: string) {
+    setDefaultBudgetIdState(id);
+    localStorage.setItem(DEFAULT_BUDGET_KEY, id);
+    // Also switch to it immediately
+    setActiveBudgetId(id);
   }
 
   async function createBudget(
@@ -129,8 +144,8 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
 
   return (
     <BudgetContext.Provider value={{
-      budgets, activeBudgetId, activeBudget, loadingBudgets,
-      setActiveBudgetId, createBudget, updateBudget, deleteBudget, refreshBudgets,
+      budgets, activeBudgetId, activeBudget, defaultBudgetId, loadingBudgets,
+      setActiveBudgetId, setDefaultBudgetId, createBudget, updateBudget, deleteBudget, refreshBudgets,
     }}>
       {children}
     </BudgetContext.Provider>

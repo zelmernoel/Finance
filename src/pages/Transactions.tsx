@@ -1,11 +1,11 @@
 import {
-  useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent,
+  useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent,
 } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import type { Transaction } from '../types';
+import type { Category, Transaction } from '../types';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
-import { formatEuro, formatDate, downloadCSV } from '../utils';
+import { formatEuro, formatDate, downloadCSV, ACCENT } from '../utils';
 import { exportTransactionsPDF } from '../lib/exportPDF';
 import { printTransactions } from '../lib/printTransactions';
 import {
@@ -14,7 +14,9 @@ import {
 
 interface Props {
   transactions: Transaction[];
+  categories: Category[];
   onDelete: (id: string) => void;
+  onUpdate: (id: string, patch: Partial<Omit<Transaction, 'id'>>) => Promise<void>;
   onNavigateToNew: () => void;
   budgetName: string;
   userName: string;
@@ -53,7 +55,7 @@ function useDebounce<T>(value: T, ms: number): T {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Transactions({
-  transactions, onDelete, onNavigateToNew, budgetName, userName,
+  transactions, categories, onDelete, onUpdate, onNavigateToNew, budgetName, userName,
 }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -65,6 +67,36 @@ export default function Transactions({
   const [sortKey, setSortKey]       = useState<SortKey>('date');
   const [sortDir, setSortDir]       = useState<SortDir>('desc');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+
+  // Edit state
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [editForm, setEditForm]   = useState<Partial<Omit<Transaction, 'id'>>>({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError]   = useState<string | null>(null);
+
+  function openEdit(t: Transaction) {
+    setEditingTx(t);
+    setEditForm({
+      date: t.date, type: t.type, amount: t.amount,
+      category: t.category, description: t.description, note: t.note ?? '',
+    });
+    setEditError(null);
+  }
+
+  async function handleEditSave(e: FormEvent) {
+    e.preventDefault();
+    if (!editingTx) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      await onUpdate(editingTx.id, editForm);
+      setEditingTx(null);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Fehler beim Speichern');
+    } finally {
+      setEditSaving(false);
+    }
+  }
   const [exportOpen, setExportOpen]       = useState(false);
   const exportRef                         = useRef<HTMLDivElement>(null);
   const [receiptModal, setReceiptModal]   = useState<string | null>(null); // txId
@@ -308,6 +340,11 @@ export default function Transactions({
                         >
                           <ReceiptIcon />
                         </button>
+                        <button onClick={() => openEdit(t)}
+                          className="text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors p-1 min-w-[44px] min-h-[44px] flex items-center justify-center"
+                          title="Bearbeiten">
+                          <EditIcon />
+                        </button>
                         {deleteConfirm === t.id ? (
                           <div className="flex items-center gap-1">
                             <button onClick={() => { onDelete(t.id); setDeleteConfirm(null); }}
@@ -388,20 +425,27 @@ export default function Transactions({
                           </button>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          {deleteConfirm === t.id ? (
-                            <div className="flex items-center gap-2 justify-end">
-                              <span className="text-xs text-gray-500 dark:text-gray-400">Löschen?</span>
-                              <button onClick={() => { onDelete(t.id); setDeleteConfirm(null); }}
-                                className="text-xs px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded hover:bg-gray-700">Ja</button>
-                              <button onClick={() => setDeleteConfirm(null)}
-                                className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">Nein</button>
-                            </div>
-                          ) : (
-                            <button onClick={() => setDeleteConfirm(t.id)}
-                              className="text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 transition-colors p-1 rounded">
-                              <TrashIcon />
+                          <div className="flex items-center gap-1 justify-end">
+                            <button onClick={() => openEdit(t)}
+                              className="text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 transition-colors p-1 rounded"
+                              title="Bearbeiten">
+                              <EditIcon />
                             </button>
-                          )}
+                            {deleteConfirm === t.id ? (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-500 dark:text-gray-400">Löschen?</span>
+                                <button onClick={() => { onDelete(t.id); setDeleteConfirm(null); }}
+                                  className="text-xs px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded hover:bg-gray-700">Ja</button>
+                                <button onClick={() => setDeleteConfirm(null)}
+                                  className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">Nein</button>
+                              </div>
+                            ) : (
+                              <button onClick={() => setDeleteConfirm(t.id)}
+                                className="text-gray-400 dark:text-gray-600 hover:text-gray-700 dark:hover:text-gray-400 transition-colors p-1 rounded">
+                                <TrashIcon />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -416,6 +460,91 @@ export default function Transactions({
       {/* Hidden file inputs for receipt modal */}
       <input ref={receiptCamRef}  type="file" accept="image/*" capture="environment" className="hidden" onChange={handleReceiptFile} />
       <input ref={receiptFileRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={handleReceiptFile} />
+
+      {/* ── Edit Modal ───────────────────────────────────────────────── */}
+      {editingTx && (() => {
+        const catOptions = categories.filter(c => c.type === editForm.type).map(c => c.name);
+        const inputCls2 = 'w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]';
+        return (
+          <>
+            <div className="fixed inset-0 bg-black/50 z-40" onClick={() => setEditingTx(null)} />
+            <div className="modal-enter fixed inset-x-4 top-1/2 -translate-y-1/2 z-50 max-w-lg mx-auto">
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Transaktion bearbeiten</p>
+                  <button onClick={() => setEditingTx(null)} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 p-1">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                <form onSubmit={handleEditSave} className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+                  {/* Typ */}
+                  <div className="flex rounded border border-gray-200 dark:border-gray-600 overflow-hidden">
+                    {(['expense', 'income'] as const).map(t => (
+                      <button key={t} type="button"
+                        onClick={() => setEditForm(f => ({ ...f, type: t, category: '' }))}
+                        className={`flex-1 py-2.5 text-sm font-medium transition-colors ${editForm.type === t ? 'text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                        style={editForm.type === t ? { backgroundColor: ACCENT } : undefined}>
+                        {t === 'expense' ? 'Ausgabe' : 'Einnahme'}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Datum */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Datum</label>
+                    <input type="date" required value={editForm.date ?? ''} onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))} className={inputCls2} />
+                  </div>
+                  {/* Betrag */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Betrag (€)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">€</span>
+                      <input type="text" inputMode="decimal" required
+                        value={editForm.amount ?? ''}
+                        onChange={e => setEditForm(f => ({ ...f, amount: parseFloat(e.target.value.replace(',', '.')) || 0 }))}
+                        className={`${inputCls2} pl-7`} />
+                    </div>
+                  </div>
+                  {/* Kategorie */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Kategorie</label>
+                    <select required value={editForm.category ?? ''} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))} className={`${inputCls2} bg-white dark:bg-gray-700`}>
+                      <option value="">Kategorie wählen</option>
+                      {catOptions.map(c => <option key={c} value={c}>{c}</option>)}
+                      {editForm.category && !catOptions.includes(editForm.category) && (
+                        <option value={editForm.category}>{editForm.category}</option>
+                      )}
+                    </select>
+                  </div>
+                  {/* Beschreibung */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Beschreibung</label>
+                    <input type="text" required value={editForm.description ?? ''} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} className={inputCls2} />
+                  </div>
+                  {/* Notiz */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Notiz (optional)</label>
+                    <input type="text" value={editForm.note ?? ''} onChange={e => setEditForm(f => ({ ...f, note: e.target.value }))} className={inputCls2} />
+                  </div>
+                  {editError && <p className="text-sm text-red-600 dark:text-red-400">{editError}</p>}
+                  <div className="flex gap-3 pt-1">
+                    <button type="submit" disabled={editSaving}
+                      className="flex-1 py-2.5 text-sm font-semibold text-white rounded disabled:opacity-50"
+                      style={{ backgroundColor: ACCENT }}>
+                      {editSaving ? 'Speichern…' : 'Speichern'}
+                    </button>
+                    <button type="button" onClick={() => setEditingTx(null)}
+                      className="px-4 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+                      Abbrechen
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* ── Receipt Modal ─────────────────────────────────────────────── */}
       {receiptModal && (
@@ -520,6 +649,15 @@ export default function Transactions({
         </>
       )}
     </div>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+    </svg>
   );
 }
 

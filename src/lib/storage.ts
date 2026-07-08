@@ -11,6 +11,7 @@ export interface StorageAdapter {
   // Transactions
   getTransactions(): Promise<Transaction[]>;
   addTransaction(t: Transaction): Promise<Transaction>;
+  updateTransaction(id: string, patch: Partial<Omit<Transaction, 'id'>>): Promise<Transaction>;
   deleteTransaction(id: string): Promise<void>;
   deleteAllTransactions(ids: string[]): Promise<void>;
   importTransactions(txs: Transaction[]): Promise<Transaction[]>;

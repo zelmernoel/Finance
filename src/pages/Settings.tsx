@@ -101,8 +101,9 @@ export default function SettingsPage({
     settings.startingBalance === 0 ? '' : String(settings.startingBalance).replace('.', ',')
   );
   const [monthStart, setMonthStart] = useState(settings.monthStart ?? 1);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved]   = useState(false);
+  const [saving, setSaving]     = useState(false);
+  const [saved, setSaved]       = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // categories tab
   const [catTab, setCatTab]           = useState<'expense' | 'income'>('expense');
@@ -185,6 +186,7 @@ export default function SettingsPage({
   async function handleSaveProfile(e: FormEvent) {
     e.preventDefault();
     setSaving(true);
+    setSaveError(null);
     try {
       const parsed = parseFloat(balance.replace(',', '.'));
       await onSaveSettings({
@@ -194,6 +196,8 @@ export default function SettingsPage({
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Fehler beim Speichern');
     } finally {
       setSaving(false);
     }
@@ -325,13 +329,16 @@ export default function SettingsPage({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <button type="submit" disabled={saving}
-              className="px-4 py-2 text-sm font-semibold text-white rounded disabled:opacity-50"
-              style={{ backgroundColor: ACCENT }}>
-              {saving ? 'Speichern…' : 'Speichern'}
-            </button>
-            {saved && <span className="text-sm text-gray-400 dark:text-gray-500">Gespeichert.</span>}
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <button type="submit" disabled={saving}
+                className="px-4 py-2 text-sm font-semibold text-white rounded disabled:opacity-50"
+                style={{ backgroundColor: ACCENT }}>
+                {saving ? 'Speichern…' : 'Speichern'}
+              </button>
+              {saved && <span className="text-sm text-gray-400 dark:text-gray-500">Gespeichert.</span>}
+            </div>
+            {saveError && <p className="text-sm text-red-600 dark:text-red-400">{saveError}</p>}
           </div>
         </form>
       </Card>

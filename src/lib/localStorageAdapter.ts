@@ -57,6 +57,14 @@ export function createLocalStorageAdapter(budgetId: string): StorageAdapter {
       lsSet(txKey(budgetId), next);
       return t;
     },
+    async updateTransaction(id, patch) {
+      const list = ls<Transaction[]>(txKey(budgetId), []);
+      const updated = list.map(t => t.id === id ? { ...t, ...patch } : t);
+      lsSet(txKey(budgetId), updated);
+      const found = updated.find(t => t.id === id);
+      if (!found) throw new Error('Transaktion nicht gefunden');
+      return found;
+    },
     async deleteTransaction(id) {
       const list = ls<Transaction[]>(txKey(budgetId), []);
       lsSet(txKey(budgetId), list.filter(t => t.id !== id));

@@ -11,7 +11,7 @@ const PRESET_COLORS = [
 
 export default function BudgetsPage() {
   const {
-    budgets, activeBudgetId, setActiveBudgetId,
+    budgets, activeBudgetId, defaultBudgetId, setActiveBudgetId, setDefaultBudgetId,
     createBudget, updateBudget, deleteBudget,
   } = useBudget();
 
@@ -126,7 +126,9 @@ export default function BudgetsPage() {
             key={b.id}
             budget={b}
             isActive={b.id === activeBudgetId}
+            isDefault={b.id === defaultBudgetId}
             onActivate={() => setActiveBudgetId(b.id)}
+            onSetDefault={() => setDefaultBudgetId(b.id)}
             deleteConfirm={deleteConfirm}
             onDeleteConfirm={setDeleteConfirm}
             onDelete={handleDelete}
@@ -143,13 +145,15 @@ export default function BudgetsPage() {
 // ── BudgetCard ────────────────────────────────────────────────────────────────
 
 function BudgetCard({
-  budget, isActive, onActivate,
+  budget, isActive, isDefault, onActivate, onSetDefault,
   deleteConfirm, onDeleteConfirm, onDelete,
   editingId, setEditingId, onUpdate,
 }: {
   budget: Budget;
   isActive: boolean;
+  isDefault: boolean;
   onActivate: () => void;
+  onSetDefault: () => void;
   deleteConfirm: string | null;
   onDeleteConfirm: (id: string | null) => void;
   onDelete: (id: string) => void;
@@ -210,6 +214,18 @@ function BudgetCard({
             <button onClick={onActivate}
               className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
               Wechseln
+            </button>
+          )}
+          {!isEditing && (
+            <button
+              onClick={onSetDefault}
+              title={isDefault ? 'Standard-Bereich' : 'Als Standard festlegen'}
+              className={`p-1 transition-colors ${isDefault ? 'text-yellow-400' : 'text-gray-300 dark:text-gray-600 hover:text-yellow-400'}`}
+            >
+              <svg className="w-4 h-4" fill={isDefault ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                  d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+              </svg>
             </button>
           )}
           {isEditing ? (

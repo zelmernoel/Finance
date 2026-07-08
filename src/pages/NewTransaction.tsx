@@ -46,7 +46,9 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, on
 
   // Receipt
   const [receiptDataUrl, setReceiptDataUrl] = useState<string | null>(null);
+  const [receiptFileName, setReceiptFileName] = useState<string | null>(null);
   const [receiptProcessing, setReceiptProcessing] = useState(false);
+  const [receiptError, setReceiptError] = useState<string | null>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef   = useRef<HTMLInputElement>(null);
 
@@ -54,9 +56,13 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, on
     const file = e.target.files?.[0];
     if (!file) return;
     setReceiptProcessing(true);
+    setReceiptError(null);
     try {
       const dataUrl = await fileToDataUrl(file);
       setReceiptDataUrl(dataUrl);
+      setReceiptFileName(file.name);
+    } catch (err) {
+      setReceiptError(err instanceof Error ? err.message : 'Datei konnte nicht geladen werden');
     } finally {
       setReceiptProcessing(false);
       e.target.value = '';
@@ -104,7 +110,7 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, on
       setAmount(''); setDesc(''); setNotes(['']);
       setDate(today); setCategory('');
       setIsRecurring(false); setEndDate('');
-      setReceiptDataUrl(null);
+      setReceiptDataUrl(null); setReceiptFileName(null);
       setSuccess(true);
       setTimeout(() => {
         setSuccess(false);
@@ -272,19 +278,28 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, on
             </p>
             {receiptDataUrl ? (
               <div className="relative">
-                <img
-                  src={receiptDataUrl}
-                  alt="Beleg"
-                  className="w-full max-h-48 object-contain rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800"
-                />
+                {receiptDataUrl.startsWith('data:application/pdf') ? (
+                  <div className="flex items-center gap-2 px-3 py-3 rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800">
+                    <svg className="w-5 h-5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                    <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{receiptFileName ?? 'dokument.pdf'}</span>
+                  </div>
+                ) : (
+                  <img
+                    src={receiptDataUrl}
+                    alt="Beleg"
+                    className="w-full max-h-48 object-contain rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-800"
+                  />
+                )}
                 <button
                   type="button"
-                  onClick={() => setReceiptDataUrl(null)}
+                  onClick={() => { setReceiptDataUrl(null); setReceiptFileName(null); }}
                   className="absolute top-1.5 right-1.5 bg-gray-900/60 hover:bg-gray-900/80 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs transition-colors"
                 >✕</button>
               </div>
             ) : (
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {/* Camera — mobile only */}
                 <label className="lg:hidden flex-1 flex items-center justify-center gap-2 py-2.5 border border-gray-200 dark:border-gray-600 rounded text-sm text-gray-600 dark:text-gray-300 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 min-h-[44px] transition-colors">
                   <CameraIcon />
@@ -303,6 +318,7 @@ export default function NewTransaction({ categories, onSubmit, onAddCategory, on
                 )}
               </div>
             )}
+            {receiptError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{receiptError}</p>}
           </div>
 
           <button type="submit" disabled={loading}
