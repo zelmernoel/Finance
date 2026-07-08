@@ -1,6 +1,9 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import type { Budget } from '../types';
 import { useBudget } from '../context/BudgetContext';
+import { useAuth } from '../context/AuthContext';
+import { createSupabaseAdapter } from '../lib/supabaseAdapter';
+import { createLocalStorageAdapter } from '../lib/localStorageAdapter';
 import Card from '../components/Card';
 import { formatEuro, ACCENT } from '../utils';
 
@@ -14,6 +17,40 @@ export default function BudgetsPage() {
     budgets, activeBudgetId, defaultBudgetId, setActiveBudgetId, setDefaultBudgetId,
     createBudget, updateBudget, deleteBudget,
   } = useBudget();
+  const { user } = useAuth();
+
+  const [balances, setBalances] = useState<Record<string, number | null>>({});
+  const [balancesLoading, setBalancesLoading] = useState(false);
+
+  useEffect(() => {
+    if (!budgets.length) return;
+    setBalancesLoading(true);
+    Promise.all(
+      budgets.map(async b => {
+        const adapter = user
+          ? createSupabaseAdapter(user.id, b.id)
+          : createLocalStorageAdapter(b.id);
+        try {
+          const [txs, settings] = await Promise.all([
+            adapter.getTransactions(),
+            adapter.getSettings(),
+          ]);
+          const income  = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+          const expense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+          return [b.id, (settings.startingBalance ?? 0) + income - expense] as const;
+        } catch {
+          return [b.id, null] as const;
+        }
+      })
+    ).then(entries => {
+      setBalances(Object.fromEntries(entries));
+      setBalancesLoading(false);
+    });
+  }, [budgets, user]);
+
+  const knownBalances = Object.values(balances).filter((v): v is number => v !== null);
+  const totalBalance  = knownBalances.reduce((s, v) => s + v, 0);
+  const allLoaded     = !balancesLoading && knownBalances.length === budgets.length;
 
   const [showForm, setShowForm] = useState(false);
   const [formName, setFormName] = useState('');
@@ -54,6 +91,38 @@ export default function BudgetsPage() {
           + Neuer Bereich
         </button>
       </div>
+
+      {/* ── Gesamtübersicht ─────────────────────────────────────────────── */}
+      {budgets.length > 1 && (
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Gesamtguthaben</p>
+            {balancesLoading && (
+              <div className="w-4 h-4 border-2 border-gray-200 dark:border-gray-600 rounded-full animate-spin" style={{ borderTopColor: ACCENT }} />
+            )}
+          </div>
+          <p className={`text-2xl font-bold tabular-nums ${allLoaded ? (totalBalance < 0 ? 'text-red-500 dark:text-red-400' : 'text-gray-900 dark:text-gray-100') : 'text-gray-300 dark:text-gray-600'}`}>
+            {allLoaded ? formatEuro(totalBalance) : '—'}
+          </p>
+          {allLoaded && budgets.length > 1 && (
+            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex flex-wrap gap-x-4 gap-y-1.5">
+              {budgets.map(b => {
+                const bal = balances[b.id];
+                return (
+                  <div key={b.id} className="flex items-center gap-1.5 min-w-0">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
+                    <span className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[100px]">{b.name}</span>
+                    <span className={`text-xs font-medium tabular-nums ${bal === null ? 'text-gray-300' : bal < 0 ? 'text-red-500 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                      {bal === null ? '—' : formatEuro(bal)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      )}
+
 
       {/* Create form */}
       {showForm && (
@@ -125,6 +194,8 @@ export default function BudgetsPage() {
           <BudgetCard
             key={b.id}
             budget={b}
+            balance={balances[b.id] ?? null}
+            balanceLoading={balancesLoading}
             isActive={b.id === activeBudgetId}
             isDefault={b.id === defaultBudgetId}
             onActivate={() => setActiveBudgetId(b.id)}
@@ -145,11 +216,13 @@ export default function BudgetsPage() {
 // ── BudgetCard ────────────────────────────────────────────────────────────────
 
 function BudgetCard({
-  budget, isActive, isDefault, onActivate, onSetDefault,
+  budget, balance, balanceLoading, isActive, isDefault, onActivate, onSetDefault,
   deleteConfirm, onDeleteConfirm, onDelete,
   editingId, setEditingId, onUpdate,
 }: {
   budget: Budget;
+  balance: number | null;
+  balanceLoading: boolean;
   isActive: boolean;
   isDefault: boolean;
   onActivate: () => void;
@@ -198,14 +271,25 @@ function BudgetCard({
               />
             </div>
           ) : (
-            <div>
-              <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                {budget.name}
-                {isActive && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(aktiv)</span>}
-              </p>
-              <p className="text-xs text-gray-400 dark:text-gray-500">
-                {budget.type === 'business' ? 'Firma' : 'Privat'} · Startguthaben: {formatEuro(budget.startingBalance)}
-              </p>
+            <div className="flex items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                  {budget.name}
+                  {isActive && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(aktiv)</span>}
+                </p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">
+                  {budget.type === 'business' ? 'Firma' : 'Privat'}
+                </p>
+              </div>
+              <div className="text-right flex-shrink-0">
+                {balanceLoading ? (
+                  <div className="w-3 h-3 border-2 border-gray-200 dark:border-gray-600 rounded-full animate-spin mx-auto" style={{ borderTopColor: budget.color }} />
+                ) : (
+                  <p className={`text-sm font-semibold tabular-nums ${balance === null ? 'text-gray-300' : balance < 0 ? 'text-red-500 dark:text-red-400' : 'text-gray-900 dark:text-gray-100'}`}>
+                    {balance === null ? '—' : formatEuro(balance)}
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>

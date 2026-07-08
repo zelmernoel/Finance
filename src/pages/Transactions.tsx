@@ -164,7 +164,7 @@ export default function Transactions({
     return () => document.removeEventListener('mousedown', close);
   }, [exportOpen]);
 
-  const categories = useMemo(() => {
+  const txCategoryNames = useMemo(() => {
     const set = new Set(transactions.map(t => t.category));
     return [...set].sort();
   }, [transactions]);
@@ -243,7 +243,7 @@ export default function Transactions({
           <select value={filterCategory} onChange={e => setFilterCat(e.target.value)}
             className={`${inputCls} bg-white dark:bg-gray-700`}>
             <option value="">Alle Kategorien</option>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            {txCategoryNames.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)}
             className={inputCls} />
