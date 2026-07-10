@@ -348,8 +348,8 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
                 <Scatter data={scatterData} fill={ACCENT} opacity={0.9}
                   shape={(props: { cx?: number; cy?: number; payload?: { amount: number } }) => {
                     const { cx = 0, cy = 0, payload } = props;
-                    const r = Math.max(6, Math.min(20, Math.sqrt((payload?.amount ?? 0) / 5)));
-                    return <circle cx={cx} cy={cy} r={r} fill={ACCENT} opacity={0.85} stroke="white" strokeWidth={1.5} />;
+                    const r = Math.max(9, Math.min(24, Math.sqrt((payload?.amount ?? 0) / 3)));
+                    return <circle cx={cx} cy={cy} r={r} fill={ACCENT} opacity={0.9} stroke="white" strokeWidth={2} />;
                   }}
                 />
               </ScatterChart>
