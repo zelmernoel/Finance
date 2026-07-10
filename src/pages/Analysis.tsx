@@ -345,11 +345,11 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
                     );
                   }}
                 />
-                <Scatter data={scatterData} fill={ACCENT} opacity={0.7}
+                <Scatter data={scatterData} fill={ACCENT} opacity={0.9}
                   shape={(props: { cx?: number; cy?: number; payload?: { amount: number } }) => {
                     const { cx = 0, cy = 0, payload } = props;
-                    const r = Math.max(3, Math.min(14, Math.sqrt((payload?.amount ?? 0) / 10)));
-                    return <circle cx={cx} cy={cy} r={r} fill={ACCENT} opacity={0.6} />;
+                    const r = Math.max(6, Math.min(20, Math.sqrt((payload?.amount ?? 0) / 5)));
+                    return <circle cx={cx} cy={cy} r={r} fill={ACCENT} opacity={0.85} stroke="white" strokeWidth={1.5} />;
                   }}
                 />
               </ScatterChart>
