@@ -198,7 +198,7 @@ export default function Transactions({
 
   function SortIcon({ k }: { k: SortKey }) {
     if (sortKey !== k) return <span className="ml-1 text-gray-300 dark:text-gray-600">↕</span>;
-    return <span className="ml-1" style={{ color: '#4A6FA5' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
+    return <span className="ml-1" style={{ color: 'var(--accent)' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>;
   }
 
   const activeFilters = useCallback(() => ({
@@ -245,10 +245,16 @@ export default function Transactions({
             <option value="">Alle Kategorien</option>
             {txCategoryNames.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)}
-            className={inputCls} />
-          <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)}
-            className={inputCls} />
+          <div>
+            <label className="block text-[10px] font-medium text-gray-400 dark:text-gray-500 mb-1 pl-0.5">Von</label>
+            <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)}
+              className={`w-full ${inputCls}`} />
+          </div>
+          <div>
+            <label className="block text-[10px] font-medium text-gray-400 dark:text-gray-500 mb-1 pl-0.5">Bis</label>
+            <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)}
+              className={`w-full ${inputCls}`} />
+          </div>
         </div>
         <div className="flex items-center justify-between mt-3 flex-wrap gap-2">
           <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -324,7 +330,7 @@ export default function Transactions({
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <span className="text-sm font-semibold whitespace-nowrap mr-1">
                           <span className="text-gray-900 dark:text-gray-100"
-                            style={t.type === 'income' ? { color: '#4A6FA5' } : undefined}>
+                            style={t.type === 'income' ? { color: 'var(--accent)' } : undefined}>
                             {t.type === 'income' ? '+' : '−'} {formatEuro(t.amount)}
                           </span>
                         </span>
@@ -333,9 +339,10 @@ export default function Transactions({
                           onClick={() => openReceipt(t.id)}
                           className={`p-1 min-w-[44px] min-h-[44px] flex items-center justify-center transition-colors ${
                             hasImg
-                              ? 'text-[#4A6FA5]'
+                              ? ''
                               : 'text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400'
                           }`}
+                          style={hasImg ? { color: 'var(--accent)' } : undefined}
                           title={hasImg ? 'Beleg ansehen' : 'Beleg hinzufügen'}
                         >
                           <ReceiptIcon />
@@ -407,7 +414,7 @@ export default function Transactions({
                         </td>
                         <td className="px-4 py-3 text-right font-medium whitespace-nowrap">
                           <span className="text-gray-900 dark:text-gray-100"
-                            style={t.type === 'income' ? { color: '#4A6FA5' } : undefined}>
+                            style={t.type === 'income' ? { color: 'var(--accent)' } : undefined}>
                             {t.type === 'income' ? '+' : '−'} {formatEuro(t.amount)}
                           </span>
                         </td>
@@ -417,9 +424,10 @@ export default function Transactions({
                             title={hasImg ? 'Beleg ansehen' : 'Beleg hinzufügen'}
                             className={`p-1 rounded transition-colors ${
                               hasImg
-                                ? 'text-[#4A6FA5] hover:opacity-70'
+                                ? 'hover:opacity-70'
                                 : 'text-gray-300 dark:text-gray-600 hover:text-gray-500 dark:hover:text-gray-400'
                             }`}
+                            style={hasImg ? { color: 'var(--accent)' } : undefined}
                           >
                             <ReceiptIcon />
                           </button>

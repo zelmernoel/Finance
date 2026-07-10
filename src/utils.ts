@@ -192,8 +192,8 @@ export function parseImportCSV(text: string): CsvParseResult {
   return { valid, errors };
 }
 
-export const ACCENT = '#4A6FA5';
-export const CHART_INCOME = '#4A6FA5';
+export const ACCENT = 'var(--accent)';
+export const CHART_INCOME = 'var(--accent)';
 export const CHART_EXPENSE = '#9CA3AF';
 export const CHART_COLORS = [
   '#4A6FA5', '#6B8FC4', '#8BAFD0', '#A8C5DA', '#C4D9E6',

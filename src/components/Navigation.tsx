@@ -168,9 +168,10 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
                     onClick={() => { onTabChange(t.id); setDropdown(false); }}
                     className={`px-2 xl:px-3 py-4 text-xs xl:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                       isActive
-                        ? 'border-[#4A6FA5] text-[#4A6FA5]'
+                        ? 'border-[color:var(--accent)]'
                         : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
                     }`}
+                    style={isActive ? { color: 'var(--accent)' } : undefined}
                   >
                     {t.label}
                   </button>
@@ -199,9 +200,10 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
               title="Einstellungen"
               className={`p-2 rounded transition-colors flex-shrink-0 ${
                 activeTab === 'settings'
-                  ? 'text-[#4A6FA5]'
+                  ? ''
                   : 'text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
               }`}
+              style={activeTab === 'settings' ? { color: 'var(--accent)' } : undefined}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}

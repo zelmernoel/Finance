@@ -7,6 +7,10 @@
   box-sizing: border-box;
 }
 
+:root {
+  --accent: #4A6FA5;
+}
+
 html {
   background-color: #ffffff;
   color: #111827;

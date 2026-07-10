@@ -16,7 +16,7 @@ export default function EmptyState({ message, action }: EmptyStateProps) {
         <button
           onClick={action.onClick}
           className="text-sm font-medium underline underline-offset-2 hover:opacity-80"
-          style={{ color: '#4A6FA5' }}
+          style={{ color: 'var(--accent)' }}
         >
           {action.label} →
         </button>

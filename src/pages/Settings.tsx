@@ -6,7 +6,7 @@ import Card from '../components/Card';
 import { ACCENT, formatEuro, downloadCSV, downloadJSON, parseImportCSV } from '../utils';
 import { exportTransactionsPDF } from '../lib/exportPDF';
 import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../hooks/useTheme';
+import { useTheme, ACCENT_PRESETS } from '../hooks/useTheme';
 import type { Theme } from '../hooks/useTheme';
 import { useBudget } from '../context/BudgetContext';
 
@@ -92,7 +92,7 @@ export default function SettingsPage({
   onDeleteTransactionsByPeriod,
 }: Props) {
   const { user, signOut } = useAuth();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, accent, setAccent } = useTheme();
   const { activeBudgetId } = useBudget();
 
   // profile
@@ -365,6 +365,33 @@ export default function SettingsPage({
         </div>
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
           „System" übernimmt die Einstellung deines Betriebssystems.
+        </p>
+
+        {/* Accent color */}
+        <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest mt-5 mb-3">Akzentfarbe</p>
+        <div className="flex flex-wrap gap-2.5">
+          {ACCENT_PRESETS.map(preset => {
+            const active = accent === preset.value;
+            return (
+              <button
+                key={preset.value}
+                type="button"
+                onClick={() => setAccent(preset.value)}
+                title={preset.name}
+                className={`w-8 h-8 rounded-full transition-transform hover:scale-110 flex items-center justify-center ${active ? 'ring-2 ring-offset-2 ring-gray-400 dark:ring-gray-500 scale-110' : ''}`}
+                style={{ backgroundColor: preset.value }}
+              >
+                {active && (
+                  <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+          Farbe für Buttons, Hervorhebungen und Diagramme.
         </p>
       </Card>
 
