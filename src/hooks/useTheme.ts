@@ -16,11 +16,28 @@ export const ACCENT_PRESETS = [
 
 export const DEFAULT_ACCENT = '#4A6FA5';
 
+/** Background palettes. `forcesDark` palettes only read well as dark surfaces. */
+export const PALETTES = [
+  { id: 'default',  name: 'Standard',    desc: 'Neutrales Blaugrau',   swatch: '#111827', card: '#1f2937', forcesDark: false },
+  { id: 'mono',     name: 'Mono',        desc: 'Reines Schwarz-Weiß',  swatch: '#171717', card: '#262626', forcesDark: false },
+  { id: 'graphite', name: 'Graphit',     desc: 'Warmes Anthrazit',     swatch: '#1c1917', card: '#292524', forcesDark: false },
+  { id: 'ocean',    name: 'Ozean',       desc: 'Tiefes Marineblau',    swatch: '#0a1929', card: '#0f2942', forcesDark: true  },
+  { id: 'midnight', name: 'Mitternacht', desc: 'Fast schwarz, kühl',   swatch: '#0b0e16', card: '#141924', forcesDark: true  },
+  { id: 'nebula',   name: 'Nebula',      desc: 'Dunkles Violett',      swatch: '#171026', card: '#271b3f', forcesDark: true  },
+  { id: 'forest',   name: 'Wald',        desc: 'Tiefes Waldgrün',      swatch: '#0c1e15', card: '#142f21', forcesDark: true  },
+] as const;
+
+export type PaletteId = typeof PALETTES[number]['id'];
+
+export const DEFAULT_PALETTE: PaletteId = 'default';
+
 interface ThemeContextValue {
   theme: Theme;
   setTheme: (t: Theme) => void;
   accent: string;
   setAccent: (color: string) => void;
+  palette: PaletteId;
+  setPalette: (p: PaletteId) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
@@ -28,6 +45,8 @@ const ThemeContext = createContext<ThemeContextValue>({
   setTheme: () => {},
   accent: DEFAULT_ACCENT,
   setAccent: () => {},
+  palette: DEFAULT_PALETTE,
+  setPalette: () => {},
 });
 
 function getSystemPref(): 'light' | 'dark' {
@@ -45,6 +64,12 @@ function applyAccent(color: string): void {
   document.documentElement.style.setProperty('--accent', color);
 }
 
+function applyPalette(id: PaletteId): void {
+  const root = document.documentElement;
+  PALETTES.forEach(p => root.classList.remove(`palette-${p.id}`));
+  if (id !== 'default') root.classList.add(`palette-${id}`);
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => {
     try { return (localStorage.getItem('theme') as Theme) ?? 'system'; }
@@ -54,6 +79,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [accent, setAccentState] = useState<string>(() => {
     try { return localStorage.getItem('finance-accent') ?? DEFAULT_ACCENT; }
     catch { return DEFAULT_ACCENT; }
+  });
+
+  const [palette, setPaletteState] = useState<PaletteId>(() => {
+    try {
+      const stored = localStorage.getItem('finance-palette') as PaletteId | null;
+      return PALETTES.some(p => p.id === stored) ? stored! : DEFAULT_PALETTE;
+    } catch { return DEFAULT_PALETTE; }
   });
 
   const setTheme = (t: Theme) => {
@@ -68,10 +100,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyAccent(color);
   };
 
+  const setPalette = (id: PaletteId) => {
+    setPaletteState(id);
+    try { localStorage.setItem('finance-palette', id); } catch { /* ignore */ }
+    applyPalette(id);
+    // Dark-only palettes have no legible light variant — switch the mode with them.
+    if (PALETTES.find(p => p.id === id)?.forcesDark) setTheme('dark');
+  };
+
   // Apply on mount
   useEffect(() => {
     applyTheme(theme);
     applyAccent(accent);
+    applyPalette(palette);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for system pref changes when mode is 'system'
@@ -83,7 +124,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     return () => mq.removeEventListener('change', handler);
   }, [theme]);
 
-  return createElement(ThemeContext.Provider, { value: { theme, setTheme, accent, setAccent } }, children);
+  return createElement(
+    ThemeContext.Provider,
+    { value: { theme, setTheme, accent, setAccent, palette, setPalette } },
+    children,
+  );
 }
 
 export function useTheme(): ThemeContextValue {

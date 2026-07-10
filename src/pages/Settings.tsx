@@ -6,7 +6,7 @@ import Card from '../components/Card';
 import { ACCENT, formatEuro, downloadCSV, downloadJSON, parseImportCSV } from '../utils';
 import { exportTransactionsPDF } from '../lib/exportPDF';
 import { useAuth } from '../context/AuthContext';
-import { useTheme, ACCENT_PRESETS } from '../hooks/useTheme';
+import { useTheme, ACCENT_PRESETS, PALETTES } from '../hooks/useTheme';
 import type { Theme } from '../hooks/useTheme';
 import { useBudget } from '../context/BudgetContext';
 
@@ -92,7 +92,8 @@ export default function SettingsPage({
   onDeleteTransactionsByPeriod,
 }: Props) {
   const { user, signOut } = useAuth();
-  const { theme, setTheme, accent, setAccent } = useTheme();
+  const { theme, setTheme, accent, setAccent, palette, setPalette } = useTheme();
+  const paletteForcesDark = PALETTES.find(p => p.id === palette)?.forcesDark ?? false;
   const { activeBudgetId } = useBudget();
 
   // profile
@@ -347,24 +348,74 @@ export default function SettingsPage({
       <Card className="p-6">
         <SectionLabel>Darstellung</SectionLabel>
         <div className="flex rounded border border-gray-200 dark:border-gray-600 overflow-hidden">
-          {THEME_LABELS.map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setTheme(key)}
-              className={`flex-1 py-2.5 text-sm font-medium transition-colors min-h-[44px] ${
-                theme === key
-                  ? 'text-white'
-                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-              }`}
-              style={theme === key ? { backgroundColor: ACCENT } : undefined}
-            >
-              {label}
-            </button>
-          ))}
+          {THEME_LABELS.map(({ key, label }) => {
+            const locked = paletteForcesDark && key !== 'dark';
+            return (
+              <button
+                key={key}
+                type="button"
+                disabled={locked}
+                onClick={() => setTheme(key)}
+                title={locked ? 'Diese Palette ist nur im Dunkelmodus verfügbar' : undefined}
+                className={`flex-1 py-2.5 text-sm font-medium transition-colors min-h-[44px] ${
+                  theme === key
+                    ? 'text-white'
+                    : locked
+                      ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
+                style={theme === key ? { backgroundColor: ACCENT } : undefined}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-          „System" übernimmt die Einstellung deines Betriebssystems.
+          {paletteForcesDark
+            ? 'Die gewählte Palette ist nur im Dunkelmodus verfügbar.'
+            : '„System" übernimmt die Einstellung deines Betriebssystems.'}
+        </p>
+
+        {/* Background palette */}
+        <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest mt-5 mb-3">Hintergrund</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
+          {PALETTES.map(p => {
+            const active = palette === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPalette(p.id)}
+                className={`text-left rounded-lg border overflow-hidden transition-all hover:scale-[1.02] ${
+                  active
+                    ? 'border-transparent ring-2'
+                    : 'border-gray-200 dark:border-gray-600'
+                }`}
+                style={active ? { boxShadow: `0 0 0 2px ${accent}` } : undefined}
+              >
+                {/* Mini preview: page bg + card + accent dot */}
+                <div className="h-12 p-2 flex items-end gap-1.5" style={{ backgroundColor: p.swatch }}>
+                  <div className="flex-1 h-6 rounded" style={{ backgroundColor: p.card }} />
+                  <div className="w-3 h-3 rounded-full flex-shrink-0 mb-1.5" style={{ backgroundColor: accent }} />
+                </div>
+                <div className="px-2.5 py-2 bg-white dark:bg-gray-800">
+                  <p className="text-xs font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1">
+                    {p.name}
+                    {active && (
+                      <svg className="w-3 h-3 flex-shrink-0" style={{ color: accent }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </p>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">{p.desc}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+          Färbt Seitenhintergrund, Karten, Ränder und gedämpfte Texte.
         </p>
 
         {/* Accent color */}

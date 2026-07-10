@@ -3,25 +3,119 @@
 /* Class-based dark mode: dark: classes apply when html has .dark */
 @variant dark (&:where(.dark, .dark *));
 
-* {
-  box-sizing: border-box;
-}
-
 :root {
   --accent: #4A6FA5;
 }
 
+/* ── Background palettes ───────────────────────────────────────────────────
+   Tailwind v4 compiles `bg-gray-800` to `var(--color-gray-800)`, so remapping
+   the ramp on <html> retints every surface, border and muted text at once. */
+
+/* Mono — neutral, no hue */
+html.palette-mono {
+  --color-gray-50:  #fafafa;
+  --color-gray-100: #f5f5f5;
+  --color-gray-200: #e5e5e5;
+  --color-gray-300: #d4d4d4;
+  --color-gray-400: #a3a3a3;
+  --color-gray-500: #737373;
+  --color-gray-600: #525252;
+  --color-gray-700: #404040;
+  --color-gray-800: #262626;
+  --color-gray-900: #171717;
+  --color-gray-950: #0a0a0a;
+}
+
+/* Graphit — warm charcoal */
+html.palette-graphite {
+  --color-gray-50:  #fafaf9;
+  --color-gray-100: #f5f5f4;
+  --color-gray-200: #e7e5e4;
+  --color-gray-300: #d6d3d1;
+  --color-gray-400: #a8a29e;
+  --color-gray-500: #78716c;
+  --color-gray-600: #57534e;
+  --color-gray-700: #44403c;
+  --color-gray-800: #292524;
+  --color-gray-900: #1c1917;
+  --color-gray-950: #0c0a09;
+}
+
+/* Ozean — deep blue */
+html.palette-ocean {
+  --color-gray-50:  #f0f6fc;
+  --color-gray-100: #dce9f7;
+  --color-gray-200: #b8d3ef;
+  --color-gray-300: #7fb0e0;
+  --color-gray-400: #5b8cba;
+  --color-gray-500: #3d6f9e;
+  --color-gray-600: #1e5182;
+  --color-gray-700: #17415f;
+  --color-gray-800: #0f2942;
+  --color-gray-900: #0a1929;
+  --color-gray-950: #050d16;
+}
+
+/* Mitternacht — near-black, cool cast */
+html.palette-midnight {
+  --color-gray-50:  #f4f5f7;
+  --color-gray-100: #e8eaef;
+  --color-gray-200: #cbd0da;
+  --color-gray-300: #a3abbb;
+  --color-gray-400: #7a8499;
+  --color-gray-500: #58627a;
+  --color-gray-600: #3a4358;
+  --color-gray-700: #232a3a;
+  --color-gray-800: #141924;
+  --color-gray-900: #0b0e16;
+  --color-gray-950: #05070b;
+}
+
+/* Nebula — dark violet */
+html.palette-nebula {
+  --color-gray-50:  #f7f5fb;
+  --color-gray-100: #efeaf7;
+  --color-gray-200: #dcd2ee;
+  --color-gray-300: #bfaede;
+  --color-gray-400: #9b81c9;
+  --color-gray-500: #7a5cb0;
+  --color-gray-600: #5b4189;
+  --color-gray-700: #3e2c60;
+  --color-gray-800: #271b3f;
+  --color-gray-900: #171026;
+  --color-gray-950: #0b0714;
+}
+
+/* Wald — deep green */
+html.palette-forest {
+  --color-gray-50:  #f2f8f4;
+  --color-gray-100: #e0efe5;
+  --color-gray-200: #bfdcc9;
+  --color-gray-300: #92c0a4;
+  --color-gray-400: #5f9d78;
+  --color-gray-500: #3f7d59;
+  --color-gray-600: #2c6043;
+  --color-gray-700: #204832;
+  --color-gray-800: #142f21;
+  --color-gray-900: #0c1e15;
+  --color-gray-950: #060f0a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
 html {
   background-color: #ffffff;
-  color: #111827;
+  color: var(--color-gray-900);
   /* Prevent stray horizontal overflow from making the whole page zoomable on mobile.
      `clip` (not `hidden`) keeps position: sticky working on the desktop nav. */
   overflow-x: clip;
 }
 
 html.dark {
-  background-color: #111827;
-  color: #f9fafb;
+  background-color: var(--color-gray-900);
+  color: var(--color-gray-50);
 }
 
 body {
