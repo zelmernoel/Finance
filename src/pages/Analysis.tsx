@@ -11,6 +11,8 @@ import {
   formatEuro, getCurrentMonth, filterByMonth, getLast12Months,
   getCustomMonthRange, groupByCategory, ACCENT, CHART_COLORS,
 } from '../utils';
+import { useTheme } from '../hooks/useTheme';
+import { useChartTheme } from '../hooks/useChartTheme';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const euroFmt = (v: any) => formatEuro(typeof v === 'number' ? v : 0);
@@ -31,6 +33,15 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
   const { year, month } = getCurrentMonth();
   const { from: periodFrom, to: periodTo } = getCustomMonthRange(monthStart);
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
+  const { sections } = useTheme();
+  const ct = useChartTheme();
+  const tooltipStyle = {
+    fontSize: 12,
+    backgroundColor: ct.tooltipBg,
+    border: `1px solid ${ct.tooltipBorder}`,
+    borderRadius: 6,
+    color: ct.tooltipText,
+  };
 
   const currentExpenses = useMemo(() =>
     transactions.filter(t => t.type === 'expense' && t.date >= periodFrom && t.date <= periodTo),
@@ -126,11 +137,17 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
     );
   }
 
+  if (!Object.values(sections).some(Boolean)) {
+    return (
+      <EmptyState message="Alle Analyse-Ansichten sind deaktiviert. Du kannst sie unter Einstellungen → Analyse-Ansichten wieder einblenden." />
+    );
+  }
+
   return (
     <div className="space-y-6">
 
       {/* ── Kategorie-Ranking ─────────────────────────────────────────── */}
-      <ErrorBoundary>
+      {sections.ranking && <ErrorBoundary>
         <Card className="p-5">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Kategorie-Ranking</h2>
           <div className="overflow-x-auto">
@@ -222,20 +239,20 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
               </h3>
               <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={catDetailData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={smartTick} tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={euroFmt} contentStyle={{ fontSize: 12, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={smartTick} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={euroFmt} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
                   <Line type="monotone" dataKey="Betrag" stroke={ACCENT} strokeWidth={2} dot={{ r: 3, fill: ACCENT }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           )}
         </Card>
-      </ErrorBoundary>
+      </ErrorBoundary>}
 
       {/* ── Top 5 ────────────────────────────────────────────────────── */}
-      <ErrorBoundary>
+      {sections.top5 && <ErrorBoundary>
         <Card className="p-5">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Top 5 Ausgabenkategorien: Lfd. Monat vs. Vormonat</h2>
           {top5Data.length === 0 ? (
@@ -243,20 +260,20 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
           ) : (
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={top5Data} layout="vertical" barGap={4} barCategoryGap="30%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" horizontal={false} />
-                <XAxis type="number" tickFormatter={smartTick} tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="cat" tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} width={90} />
-                <Tooltip formatter={euroFmt} contentStyle={{ fontSize: 12, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} horizontal={false} />
+                <XAxis type="number" tickFormatter={smartTick} tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="cat" tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} width={90} />
+                <Tooltip formatter={euroFmt} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
                 <Bar dataKey="current" name="Lfd. Monat" fill={ACCENT} radius={[0, 2, 2, 0]} />
-                <Bar dataKey="prev"    name="Vormonat"   fill="#9CA3AF" radius={[0, 2, 2, 0]} />
+                <Bar dataKey="prev"    name="Vormonat"   fill={ct.tick} radius={[0, 2, 2, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
         </Card>
-      </ErrorBoundary>
+      </ErrorBoundary>}
 
       {/* ── Ø Ausgaben ───────────────────────────────────────────────── */}
-      <ErrorBoundary>
+      {sections.average && <ErrorBoundary>
         <Card className="p-5">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Ø Monatliche Ausgaben pro Kategorie</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
@@ -283,10 +300,10 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
             </table>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={categoryRanking.slice(0, 7)} layout="vertical" barCategoryGap="30%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" horizontal={false} />
-                <XAxis type="number" tickFormatter={smartTick} tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="cat" tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} width={80} />
-                <Tooltip formatter={euroFmt} contentStyle={{ fontSize: 12, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+                <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} horizontal={false} />
+                <XAxis type="number" tickFormatter={smartTick} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+                <YAxis type="category" dataKey="cat" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} width={80} />
+                <Tooltip formatter={euroFmt} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
                 <Bar dataKey="avg" name="Ø / Monat" radius={[0, 2, 2, 0]}>
                   {categoryRanking.slice(0, 7).map((_, i) => (
                     <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
@@ -296,41 +313,41 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
             </ResponsiveContainer>
           </div>
         </Card>
-      </ErrorBoundary>
+      </ErrorBoundary>}
 
       {/* ── Sparrate ─────────────────────────────────────────────────── */}
-      <ErrorBoundary>
+      {sections.savings && <ErrorBoundary>
         <Card className="p-5">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sparrate pro Monat</h2>
           <ResponsiveContainer width="100%" height={220}>
             <LineChart data={savingTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={smartTick} tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={euroFmt} contentStyle={{ fontSize: 12, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={smartTick} tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={euroFmt} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
               <Line type="monotone" dataKey="Sparrate" stroke={ACCENT} strokeWidth={2} dot={{ r: 3, fill: ACCENT }} />
             </LineChart>
           </ResponsiveContainer>
         </Card>
-      </ErrorBoundary>
+      </ErrorBoundary>}
 
       {/* ── Ausgabenrhythmus ─────────────────────────────────────────── */}
-      <ErrorBoundary>
+      {sections.rhythm && <ErrorBoundary>
         <Card className="p-5">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Ausgabenrhythmus</h2>
           <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">Wochentag × Tag des Monats — Punktgröße = Betrag</p>
           {scatterData.length === 0 ? <EmptyState message="Keine Ausgaben vorhanden." /> : (
             <ResponsiveContainer width="100%" height={240}>
               <ScatterChart>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} />
                 <XAxis type="number" dataKey="dayOfMonth" domain={[1, 31]}
                   ticks={[1, 5, 10, 15, 20, 25, 31]}
-                  tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} name="Tag"
-                  label={{ value: 'Tag des Monats', position: 'insideBottom', offset: -4, fontSize: 10, fill: '#9CA3AF' }} />
+                  tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} name="Tag"
+                  label={{ value: 'Tag des Monats', position: 'insideBottom', offset: -4, fontSize: 10, fill: ct.axisLabel }} />
                 <YAxis type="number" dataKey="weekday" domain={[0, 6]}
                   ticks={[0, 1, 2, 3, 4, 5, 6]}
                   tickFormatter={v => WEEKDAYS[v as number]}
-                  tick={{ fontSize: 11, fill: '#6B7280' }} axisLine={false} tickLine={false} name="Wochentag" />
+                  tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} name="Wochentag" />
                 <Tooltip
                   cursor={{ strokeDasharray: '3 3' }}
                   content={({ payload }) => {
@@ -349,17 +366,17 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
                   shape={(props: { cx?: number; cy?: number; payload?: { amount: number } }) => {
                     const { cx = 0, cy = 0, payload } = props;
                     const r = Math.max(9, Math.min(24, Math.sqrt((payload?.amount ?? 0) / 3)));
-                    return <circle cx={cx} cy={cy} r={r} fill={ACCENT} opacity={0.9} stroke="white" strokeWidth={2} />;
+                    return <circle cx={cx} cy={cy} r={r} fill={ACCENT} opacity={0.9} stroke={ct.dotStroke} strokeWidth={2} />;
                   }}
                 />
               </ScatterChart>
             </ResponsiveContainer>
           )}
         </Card>
-      </ErrorBoundary>
+      </ErrorBoundary>}
 
       {/* ── YTD ──────────────────────────────────────────────────────── */}
-      <ErrorBoundary>
+      {sections.ytd && <ErrorBoundary>
         <Card className="p-5">
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Jahresübersicht {year}</h2>
           {ytdData.length === 0 ? <EmptyState message="Keine Daten für dieses Jahr." /> : (
@@ -405,7 +422,7 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
             </div>
           )}
         </Card>
-      </ErrorBoundary>
+      </ErrorBoundary>}
     </div>
   );
 }

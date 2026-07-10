@@ -31,6 +31,23 @@ export type PaletteId = typeof PALETTES[number]['id'];
 
 export const DEFAULT_PALETTE: PaletteId = 'default';
 
+/** Toggleable cards on the Analysis page. */
+export const ANALYSIS_SECTIONS = [
+  { id: 'ranking', name: 'Kategorie-Ranking',   desc: 'Tabelle mit Trend und Monatsbudget' },
+  { id: 'top5',    name: 'Top 5 Kategorien',    desc: 'Lfd. Monat vs. Vormonat' },
+  { id: 'average', name: 'Ø Monatliche Ausgaben', desc: 'Durchschnitt pro Kategorie' },
+  { id: 'savings', name: 'Sparrate pro Monat',  desc: 'Verlauf der letzten 12 Monate' },
+  { id: 'rhythm',  name: 'Ausgabenrhythmus',    desc: 'Wochentag × Tag des Monats' },
+  { id: 'ytd',     name: 'Jahresübersicht',     desc: 'Monatstabelle mit Sparquote' },
+] as const;
+
+export type AnalysisSectionId = typeof ANALYSIS_SECTIONS[number]['id'];
+export type AnalysisSections = Record<AnalysisSectionId, boolean>;
+
+const ALL_SECTIONS_ON = Object.fromEntries(
+  ANALYSIS_SECTIONS.map(s => [s.id, true]),
+) as AnalysisSections;
+
 interface ThemeContextValue {
   theme: Theme;
   setTheme: (t: Theme) => void;
@@ -38,6 +55,9 @@ interface ThemeContextValue {
   setAccent: (color: string) => void;
   palette: PaletteId;
   setPalette: (p: PaletteId) => void;
+  sections: AnalysisSections;
+  toggleSection: (id: AnalysisSectionId) => void;
+  setAllSections: (on: boolean) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
@@ -47,6 +67,9 @@ const ThemeContext = createContext<ThemeContextValue>({
   setAccent: () => {},
   palette: DEFAULT_PALETTE,
   setPalette: () => {},
+  sections: ALL_SECTIONS_ON,
+  toggleSection: () => {},
+  setAllSections: () => {},
 });
 
 function getSystemPref(): 'light' | 'dark' {
@@ -88,6 +111,30 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } catch { return DEFAULT_PALETTE; }
   });
 
+  const [sections, setSections] = useState<AnalysisSections>(() => {
+    try {
+      const raw = localStorage.getItem('finance-analysis-sections');
+      if (!raw) return ALL_SECTIONS_ON;
+      const parsed = JSON.parse(raw) as Partial<AnalysisSections>;
+      // Merge over defaults so sections added in later versions default to on.
+      return { ...ALL_SECTIONS_ON, ...parsed };
+    } catch { return ALL_SECTIONS_ON; }
+  });
+
+  const persistSections = (next: AnalysisSections) => {
+    setSections(next);
+    try { localStorage.setItem('finance-analysis-sections', JSON.stringify(next)); }
+    catch { /* ignore */ }
+  };
+
+  const toggleSection = (id: AnalysisSectionId) =>
+    persistSections({ ...sections, [id]: !sections[id] });
+
+  const setAllSections = (on: boolean) =>
+    persistSections(Object.fromEntries(
+      ANALYSIS_SECTIONS.map(s => [s.id, on]),
+    ) as AnalysisSections);
+
   const setTheme = (t: Theme) => {
     setThemeState(t);
     try { localStorage.setItem('theme', t); } catch { /* ignore */ }
@@ -126,7 +173,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   return createElement(
     ThemeContext.Provider,
-    { value: { theme, setTheme, accent, setAccent, palette, setPalette } },
+    {
+      value: {
+        theme, setTheme, accent, setAccent, palette, setPalette,
+        sections, toggleSection, setAllSections,
+      },
+    },
     children,
   );
 }

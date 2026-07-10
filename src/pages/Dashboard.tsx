@@ -12,6 +12,7 @@ import {
   getCustomMonthRange,
   groupByCategory, computeBalance, CHART_INCOME, CHART_EXPENSE, CHART_COLORS, ACCENT
 } from '../utils';
+import { useChartTheme } from '../hooks/useChartTheme';
 
 interface Props {
   transactions: Transaction[];
@@ -49,6 +50,14 @@ const euroFormatter = (value: any) => formatEuro(typeof value === 'number' ? val
 export default function Dashboard({ transactions, startingBalance, userName, onNavigateToNew, monthStart = 1 }: Props) {
   const [donutRange, setDonutRange] = useState<DonutRange>('current');
   const { year, month } = getCurrentMonth();
+  const ct = useChartTheme();
+  const tooltipStyle = {
+    fontSize: 12,
+    backgroundColor: ct.tooltipBg,
+    border: `1px solid ${ct.tooltipBorder}`,
+    borderRadius: 6,
+    color: ct.tooltipText,
+  };
 
   const { from: periodFrom, to: periodTo } = getCustomMonthRange(monthStart);
   const currentMonthTx = useMemo(
@@ -129,11 +138,11 @@ export default function Dashboard({ transactions, startingBalance, userName, onN
           <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Einnahmen vs. Ausgaben (letzte 12 Monate)</h2>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={barData} barGap={2} barCategoryGap="30%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={euroFormatter} contentStyle={{ fontSize: 12, border: '1px solid #E5E7EB', borderRadius: 6 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+              <Tooltip formatter={euroFormatter} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
+              <Legend wrapperStyle={{ fontSize: 12, color: ct.tick }} />
               <Bar dataKey="Einnahmen" fill={CHART_INCOME} radius={[2, 2, 0, 0]} />
               <Bar dataKey="Ausgaben" fill={CHART_EXPENSE} radius={[2, 2, 0, 0]} />
             </BarChart>
@@ -151,11 +160,11 @@ export default function Dashboard({ transactions, startingBalance, userName, onN
             ) : (
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={lineData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false}
+                  <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false}
                     tickFormatter={(v) => v.slice(5)} interval="preserveStartEnd" />
-                  <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: '#6B7280' }} axisLine={false} tickLine={false} />
-                  <Tooltip formatter={euroFormatter} contentStyle={{ fontSize: 12, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+                  <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+                  <Tooltip formatter={euroFormatter} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
                   <Line type="monotone" dataKey="Kontostand" stroke={ACCENT} strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
@@ -197,7 +206,7 @@ export default function Dashboard({ transactions, startingBalance, userName, onN
                         <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={euroFormatter} contentStyle={{ fontSize: 12, border: '1px solid #E5E7EB', borderRadius: 6 }} />
+                    <Tooltip formatter={euroFormatter} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="flex-1 space-y-1.5 overflow-hidden">

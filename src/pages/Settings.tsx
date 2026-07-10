@@ -6,7 +6,7 @@ import Card from '../components/Card';
 import { ACCENT, formatEuro, downloadCSV, downloadJSON, parseImportCSV } from '../utils';
 import { exportTransactionsPDF } from '../lib/exportPDF';
 import { useAuth } from '../context/AuthContext';
-import { useTheme, ACCENT_PRESETS, PALETTES } from '../hooks/useTheme';
+import { useTheme, ACCENT_PRESETS, PALETTES, ANALYSIS_SECTIONS } from '../hooks/useTheme';
 import type { Theme } from '../hooks/useTheme';
 import { useBudget } from '../context/BudgetContext';
 
@@ -92,8 +92,9 @@ export default function SettingsPage({
   onDeleteTransactionsByPeriod,
 }: Props) {
   const { user, signOut } = useAuth();
-  const { theme, setTheme, accent, setAccent, palette, setPalette } = useTheme();
+  const { theme, setTheme, accent, setAccent, palette, setPalette, sections, toggleSection, setAllSections } = useTheme();
   const paletteForcesDark = PALETTES.find(p => p.id === palette)?.forcesDark ?? false;
+  const enabledCount = ANALYSIS_SECTIONS.filter(s => sections[s.id]).length;
   const { activeBudgetId } = useBudget();
 
   // profile
@@ -443,6 +444,53 @@ export default function SettingsPage({
         </div>
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
           Farbe für Buttons, Hervorhebungen und Diagramme.
+        </p>
+      </Card>
+
+      {/* ── Analyse-Ansichten ───────────────────────────────────────────── */}
+      <Card className="p-6">
+        <div className="flex items-center justify-between mb-3">
+          <SectionLabel>Analyse-Ansichten</SectionLabel>
+          <div className="flex gap-2 -mt-3">
+            <Btn onClick={() => setAllSections(true)} disabled={enabledCount === ANALYSIS_SECTIONS.length}>
+              Alle an
+            </Btn>
+            <Btn onClick={() => setAllSections(false)} disabled={enabledCount === 0}>
+              Alle aus
+            </Btn>
+          </div>
+        </div>
+
+        {ANALYSIS_SECTIONS.map(s => (
+          <div key={s.id} className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-700 last:border-0 gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{s.name}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{s.desc}</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={sections[s.id]}
+              aria-label={s.name}
+              onClick={() => toggleSection(s.id)}
+              className={`relative w-11 h-6 rounded-full flex-shrink-0 transition-colors min-h-[24px] ${
+                sections[s.id] ? '' : 'bg-gray-200 dark:bg-gray-600'
+              }`}
+              style={sections[s.id] ? { backgroundColor: ACCENT } : undefined}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  sections[s.id] ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        ))}
+
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
+          {enabledCount === 0
+            ? 'Alle Ansichten sind ausgeblendet — die Analyse-Seite bleibt leer.'
+            : `${enabledCount} von ${ANALYSIS_SECTIONS.length} Ansichten werden auf der Analyse-Seite angezeigt.`}
         </p>
       </Card>
 

@@ -5,6 +5,20 @@
 
 :root {
   --accent: #4A6FA5;
+
+  /* Restate Tailwind's default gray ramp as hex. Tailwind ships it as oklch(),
+     which SVG presentation attributes (Recharts grid/tick strokes) can't parse. */
+  --color-gray-50:  #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+  --color-gray-950: #030712;
 }
 
 /* ── Background palettes ───────────────────────────────────────────────────
@@ -46,10 +60,10 @@ html.palette-ocean {
   --color-gray-50:  #f0f6fc;
   --color-gray-100: #dce9f7;
   --color-gray-200: #b8d3ef;
-  --color-gray-300: #7fb0e0;
-  --color-gray-400: #5b8cba;
-  --color-gray-500: #3d6f9e;
-  --color-gray-600: #1e5182;
+  --color-gray-300: #a9cbe9;
+  --color-gray-400: #8fb6d9;
+  --color-gray-500: #6d9bc4;
+  --color-gray-600: #3d6f9e;
   --color-gray-700: #17415f;
   --color-gray-800: #0f2942;
   --color-gray-900: #0a1929;
@@ -61,10 +75,10 @@ html.palette-midnight {
   --color-gray-50:  #f4f5f7;
   --color-gray-100: #e8eaef;
   --color-gray-200: #cbd0da;
-  --color-gray-300: #a3abbb;
-  --color-gray-400: #7a8499;
-  --color-gray-500: #58627a;
-  --color-gray-600: #3a4358;
+  --color-gray-300: #b6bdcb;
+  --color-gray-400: #9aa5ba;
+  --color-gray-500: #7c879e;
+  --color-gray-600: #4d5770;
   --color-gray-700: #232a3a;
   --color-gray-800: #141924;
   --color-gray-900: #0b0e16;
@@ -76,10 +90,10 @@ html.palette-nebula {
   --color-gray-50:  #f7f5fb;
   --color-gray-100: #efeaf7;
   --color-gray-200: #dcd2ee;
-  --color-gray-300: #bfaede;
-  --color-gray-400: #9b81c9;
-  --color-gray-500: #7a5cb0;
-  --color-gray-600: #5b4189;
+  --color-gray-300: #cfbfe8;
+  --color-gray-400: #b9a3dc;
+  --color-gray-500: #9a83c2;
+  --color-gray-600: #6d55a0;
   --color-gray-700: #3e2c60;
   --color-gray-800: #271b3f;
   --color-gray-900: #171026;
@@ -91,15 +105,27 @@ html.palette-forest {
   --color-gray-50:  #f2f8f4;
   --color-gray-100: #e0efe5;
   --color-gray-200: #bfdcc9;
-  --color-gray-300: #92c0a4;
-  --color-gray-400: #5f9d78;
-  --color-gray-500: #3f7d59;
-  --color-gray-600: #2c6043;
+  --color-gray-300: #a9d3ba;
+  --color-gray-400: #8fc4a4;
+  --color-gray-500: #6ea583;
+  --color-gray-600: #437a5c;
   --color-gray-700: #204832;
   --color-gray-800: #142f21;
   --color-gray-900: #0c1e15;
   --color-gray-950: #060f0a;
 }
+
+/* On dark surfaces `gray-500` is only ever used as muted text, never as a fill
+   or border. The neutral ramps land near 3:1 there, so lift them to clear the
+   4.5:1 AA floor. The tinted palettes already do and are restated to outrank
+   the generic `html.dark` rule below. */
+html.dark              { --color-gray-500: #949cab; }
+html.dark.palette-mono     { --color-gray-500: #8f8f8f; }
+html.dark.palette-graphite { --color-gray-500: #968f88; }
+html.dark.palette-ocean    { --color-gray-500: #6d9bc4; }
+html.dark.palette-midnight { --color-gray-500: #7c879e; }
+html.dark.palette-nebula   { --color-gray-500: #9a83c2; }
+html.dark.palette-forest   { --color-gray-500: #6ea583; }
 
 * {
   box-sizing: border-box;
