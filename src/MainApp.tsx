@@ -218,7 +218,7 @@ export default function MainApp() {
 
   if (loadingBudgets || (loading && !error)) {
     return (
-      <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-page flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-gray-200 dark:border-gray-700 rounded-full animate-spin mx-auto mb-3"
             style={{ borderTopColor: ACCENT }} />
@@ -230,7 +230,7 @@ export default function MainApp() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-page flex items-center justify-center">
         <div className="text-center max-w-sm">
           <p className="font-medium text-gray-900 dark:text-gray-100 mb-2">Fehler beim Laden</p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{error}</p>
@@ -244,7 +244,7 @@ export default function MainApp() {
   const guestTxCount = hasGuestData() ? getAllGuestData().transactions.length : 0;
 
   return (
-    <div className="min-h-screen bg-white dark:bg-gray-900">
+    <div className="min-h-screen bg-page">
       {!user && <GuestBanner />}
       <Navigation activeTab={tab} onTabChange={setTab} />
 

@@ -29,7 +29,7 @@ export default class ErrorBoundary extends React.Component<Props, State> {
 
     if (this.props.fullPage) {
       return (
-        <div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center px-4">
+        <div className="min-h-screen bg-page flex items-center justify-center px-4">
           <div className="text-center max-w-md">
             <div className="w-14 h-14 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center mx-auto mb-5">
               <svg className="w-7 h-7 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

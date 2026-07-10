@@ -5,6 +5,9 @@
 
 :root {
   --accent: #4A6FA5;
+  /* Page background behind the cards. Palettes override it; dark mode maps it
+     onto the ramp below. `.bg-page` is the utility that paints it. */
+  --page-bg: #ffffff;
 
   /* Restate Tailwind's default gray ramp as hex. Tailwind ships it as oklch(),
      which SVG presentation attributes (Recharts grid/tick strokes) can't parse. */
@@ -199,8 +202,14 @@ html.dark.palette-forest   { --color-gray-500: #6ea583; }
   box-sizing: border-box;
 }
 
+/* Dark mode pulls the page background from the active palette's ramp. Light
+   palettes set --page-bg themselves and never combine with .dark. */
+html.dark {
+  --page-bg: var(--color-gray-900);
+}
+
 html {
-  background-color: var(--page-bg, #ffffff);
+  background-color: var(--page-bg);
   color: var(--color-gray-900);
   /* Prevent stray horizontal overflow from making the whole page zoomable on mobile.
      `clip` (not `hidden`) keeps position: sticky working on the desktop nav. */
@@ -208,8 +217,13 @@ html {
 }
 
 html.dark {
-  background-color: var(--color-gray-900);
   color: var(--color-gray-50);
+}
+
+/* Full-height page wrappers. Replaces `bg-white dark:bg-gray-900`, which painted
+   over the tint that light palettes put on <html>. */
+.bg-page {
+  background-color: var(--page-bg);
 }
 
 body {
