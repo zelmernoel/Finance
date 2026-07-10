@@ -115,6 +115,74 @@ html.palette-forest {
   --color-gray-950: #060f0a;
 }
 
+/* ── Light palettes ────────────────────────────────────────────────────────
+   Cards and the nav bar are `bg-white`, so the tint lives on the page behind
+   them (--page-bg). Their 500..900 steps stay dark enough to read on white. */
+
+/* Papier — warm off-white */
+html.palette-paper {
+  --page-bg: #f6f1e8;
+  --color-gray-50:  #fdfbf7;
+  --color-gray-100: #f6f1e8;
+  --color-gray-200: #e9e1d3;
+  --color-gray-300: #d3c8b4;
+  --color-gray-400: #a89881;
+  --color-gray-500: #756751;
+  --color-gray-600: #5a4e3d;
+  --color-gray-700: #443b2e;
+  --color-gray-800: #2e281f;
+  --color-gray-900: #1d1914;
+  --color-gray-950: #100e0a;
+}
+
+/* Himmel — soft blue */
+html.palette-sky {
+  --page-bg: #edf3fa;
+  --color-gray-50:  #f8fbfe;
+  --color-gray-100: #edf3fa;
+  --color-gray-200: #dae5f1;
+  --color-gray-300: #b6cbe2;
+  --color-gray-400: #7f9dc0;
+  --color-gray-500: #4e6f96;
+  --color-gray-600: #3a5674;
+  --color-gray-700: #2b415a;
+  --color-gray-800: #1d2c3d;
+  --color-gray-900: #131d29;
+  --color-gray-950: #0a1018;
+}
+
+/* Minze — soft green */
+html.palette-mint {
+  --page-bg: #ecf4ef;
+  --color-gray-50:  #f7fbf8;
+  --color-gray-100: #ecf4ef;
+  --color-gray-200: #d8e8de;
+  --color-gray-300: #b0ccbb;
+  --color-gray-400: #6fa384;
+  --color-gray-500: #3f7358;
+  --color-gray-600: #2e5741;
+  --color-gray-700: #22412f;
+  --color-gray-800: #172c20;
+  --color-gray-900: #0f1d15;
+  --color-gray-950: #08110c;
+}
+
+/* Lavendel — soft violet */
+html.palette-lavender {
+  --page-bg: #f2edf9;
+  --color-gray-50:  #faf8fd;
+  --color-gray-100: #f2edf9;
+  --color-gray-200: #e3daf0;
+  --color-gray-300: #c6b6df;
+  --color-gray-400: #9a83c2;
+  --color-gray-500: #6b4f9c;
+  --color-gray-600: #543c7c;
+  --color-gray-700: #3f2c5d;
+  --color-gray-800: #2a1d3e;
+  --color-gray-900: #1a1227;
+  --color-gray-950: #0f0a17;
+}
+
 /* On dark surfaces `gray-500` is only ever used as muted text, never as a fill
    or border. The neutral ramps land near 3:1 there, so lift them to clear the
    4.5:1 AA floor. The tinted palettes already do and are restated to outrank
@@ -132,7 +200,7 @@ html.dark.palette-forest   { --color-gray-500: #6ea583; }
 }
 
 html {
-  background-color: #ffffff;
+  background-color: var(--page-bg, #ffffff);
   color: var(--color-gray-900);
   /* Prevent stray horizontal overflow from making the whole page zoomable on mobile.
      `clip` (not `hidden`) keeps position: sticky working on the desktop nav. */

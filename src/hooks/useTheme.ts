@@ -16,16 +16,31 @@ export const ACCENT_PRESETS = [
 
 export const DEFAULT_ACCENT = '#4A6FA5';
 
-/** Background palettes. `forcesDark` palettes only read well as dark surfaces. */
+/**
+ * Background palettes.
+ * `mode: 'any'` works in both schemes; 'dark'/'light' palettes have no legible
+ * counterpart in the other scheme, so choosing one switches and locks the mode.
+ * Previews are the page background + card surface for each scheme.
+ */
 export const PALETTES = [
-  { id: 'default',  name: 'Standard',    desc: 'Neutrales Blaugrau',   swatch: '#111827', card: '#1f2937', forcesDark: false },
-  { id: 'mono',     name: 'Mono',        desc: 'Reines Schwarz-Weiß',  swatch: '#171717', card: '#262626', forcesDark: false },
-  { id: 'graphite', name: 'Graphit',     desc: 'Warmes Anthrazit',     swatch: '#1c1917', card: '#292524', forcesDark: false },
-  { id: 'ocean',    name: 'Ozean',       desc: 'Tiefes Marineblau',    swatch: '#0a1929', card: '#0f2942', forcesDark: true  },
-  { id: 'midnight', name: 'Mitternacht', desc: 'Fast schwarz, kühl',   swatch: '#0b0e16', card: '#141924', forcesDark: true  },
-  { id: 'nebula',   name: 'Nebula',      desc: 'Dunkles Violett',      swatch: '#171026', card: '#271b3f', forcesDark: true  },
-  { id: 'forest',   name: 'Wald',        desc: 'Tiefes Waldgrün',      swatch: '#0c1e15', card: '#142f21', forcesDark: true  },
+  { id: 'default',  name: 'Standard',    desc: 'Neutrales Blaugrau',  mode: 'any',   dark: ['#111827', '#1f2937'], light: ['#ffffff', '#ffffff'] },
+  { id: 'mono',     name: 'Mono',        desc: 'Reines Schwarz-Weiß', mode: 'any',   dark: ['#171717', '#262626'], light: ['#ffffff', '#ffffff'] },
+  { id: 'graphite', name: 'Graphit',     desc: 'Warmes Anthrazit',    mode: 'any',   dark: ['#1c1917', '#292524'], light: ['#ffffff', '#ffffff'] },
+  { id: 'ocean',    name: 'Ozean',       desc: 'Tiefes Marineblau',   mode: 'dark',  dark: ['#0a1929', '#0f2942'], light: ['#0a1929', '#0f2942'] },
+  { id: 'midnight', name: 'Mitternacht', desc: 'Fast schwarz, kühl',  mode: 'dark',  dark: ['#0b0e16', '#141924'], light: ['#0b0e16', '#141924'] },
+  { id: 'nebula',   name: 'Nebula',      desc: 'Dunkles Violett',     mode: 'dark',  dark: ['#171026', '#271b3f'], light: ['#171026', '#271b3f'] },
+  { id: 'forest',   name: 'Wald',        desc: 'Tiefes Waldgrün',     mode: 'dark',  dark: ['#0c1e15', '#142f21'], light: ['#0c1e15', '#142f21'] },
+  { id: 'paper',    name: 'Papier',      desc: 'Warmes Cremeweiß',    mode: 'light', dark: ['#f6f1e8', '#ffffff'], light: ['#f6f1e8', '#ffffff'] },
+  { id: 'sky',      name: 'Himmel',      desc: 'Zartes Hellblau',     mode: 'light', dark: ['#edf3fa', '#ffffff'], light: ['#edf3fa', '#ffffff'] },
+  { id: 'mint',     name: 'Minze',       desc: 'Frisches Hellgrün',   mode: 'light', dark: ['#ecf4ef', '#ffffff'], light: ['#ecf4ef', '#ffffff'] },
+  { id: 'lavender', name: 'Lavendel',    desc: 'Sanftes Flieder',     mode: 'light', dark: ['#f2edf9', '#ffffff'], light: ['#f2edf9', '#ffffff'] },
 ] as const;
+
+/** The scheme a palette pins the app to, or null if it supports both. */
+export function palettePinnedTheme(id: PaletteId): 'light' | 'dark' | null {
+  const mode = PALETTES.find(p => p.id === id)?.mode;
+  return mode === 'any' || mode === undefined ? null : mode;
+}
 
 export type PaletteId = typeof PALETTES[number]['id'];
 
@@ -151,15 +166,20 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setPaletteState(id);
     try { localStorage.setItem('finance-palette', id); } catch { /* ignore */ }
     applyPalette(id);
-    // Dark-only palettes have no legible light variant — switch the mode with them.
-    if (PALETTES.find(p => p.id === id)?.forcesDark) setTheme('dark');
+    // Single-scheme palettes have no legible counterpart — switch the mode with them.
+    const pinned = palettePinnedTheme(id);
+    if (pinned) setTheme(pinned);
   };
 
   // Apply on mount
   useEffect(() => {
-    applyTheme(theme);
-    applyAccent(accent);
     applyPalette(palette);
+    // A stored theme can contradict a single-scheme palette (e.g. hand-edited
+    // storage, or a palette that gained a mode after it was saved).
+    const pinned = palettePinnedTheme(palette);
+    if (pinned && theme !== pinned) setTheme(pinned);
+    else applyTheme(theme);
+    applyAccent(accent);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for system pref changes when mode is 'system'

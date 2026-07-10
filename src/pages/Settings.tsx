@@ -6,7 +6,7 @@ import Card from '../components/Card';
 import { ACCENT, formatEuro, downloadCSV, downloadJSON, parseImportCSV } from '../utils';
 import { exportTransactionsPDF } from '../lib/exportPDF';
 import { useAuth } from '../context/AuthContext';
-import { useTheme, ACCENT_PRESETS, PALETTES, ANALYSIS_SECTIONS } from '../hooks/useTheme';
+import { useTheme, ACCENT_PRESETS, PALETTES, ANALYSIS_SECTIONS, palettePinnedTheme } from '../hooks/useTheme';
 import type { Theme } from '../hooks/useTheme';
 import { useBudget } from '../context/BudgetContext';
 
@@ -93,8 +93,10 @@ export default function SettingsPage({
 }: Props) {
   const { user, signOut } = useAuth();
   const { theme, setTheme, accent, setAccent, palette, setPalette, sections, toggleSection, setAllSections } = useTheme();
-  const paletteForcesDark = PALETTES.find(p => p.id === palette)?.forcesDark ?? false;
+  const pinnedTheme = palettePinnedTheme(palette);
   const enabledCount = ANALYSIS_SECTIONS.filter(s => sections[s.id]).length;
+  const resolvedDark = theme === 'dark' ||
+    (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const { activeBudgetId } = useBudget();
 
   // profile
@@ -350,14 +352,15 @@ export default function SettingsPage({
         <SectionLabel>Darstellung</SectionLabel>
         <div className="flex rounded border border-gray-200 dark:border-gray-600 overflow-hidden">
           {THEME_LABELS.map(({ key, label }) => {
-            const locked = paletteForcesDark && key !== 'dark';
+            const locked = pinnedTheme !== null && key !== pinnedTheme;
+            const pinnedLabel = pinnedTheme === 'dark' ? 'Dunkelmodus' : 'Hellmodus';
             return (
               <button
                 key={key}
                 type="button"
                 disabled={locked}
                 onClick={() => setTheme(key)}
-                title={locked ? 'Diese Palette ist nur im Dunkelmodus verfügbar' : undefined}
+                title={locked ? `Diese Palette ist nur im ${pinnedLabel} verfügbar` : undefined}
                 className={`flex-1 py-2.5 text-sm font-medium transition-colors min-h-[44px] ${
                   theme === key
                     ? 'text-white'
@@ -373,9 +376,11 @@ export default function SettingsPage({
           })}
         </div>
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-          {paletteForcesDark
+          {pinnedTheme === 'dark'
             ? 'Die gewählte Palette ist nur im Dunkelmodus verfügbar.'
-            : '„System" übernimmt die Einstellung deines Betriebssystems.'}
+            : pinnedTheme === 'light'
+              ? 'Die gewählte Palette ist nur im Hellmodus verfügbar.'
+              : '„System" übernimmt die Einstellung deines Betriebssystems.'}
         </p>
 
         {/* Background palette */}
@@ -383,6 +388,9 @@ export default function SettingsPage({
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
           {PALETTES.map(p => {
             const active = palette === p.id;
+            // 'any' palettes preview whichever scheme is currently showing.
+            const scheme = p.mode === 'any' ? (resolvedDark ? 'dark' : 'light') : p.mode;
+            const [previewBg, previewCard] = p[scheme];
             return (
               <button
                 key={p.id}
@@ -396,8 +404,11 @@ export default function SettingsPage({
                 style={active ? { boxShadow: `0 0 0 2px ${accent}` } : undefined}
               >
                 {/* Mini preview: page bg + card + accent dot */}
-                <div className="h-12 p-2 flex items-end gap-1.5" style={{ backgroundColor: p.swatch }}>
-                  <div className="flex-1 h-6 rounded" style={{ backgroundColor: p.card }} />
+                <div className="h-12 p-2 flex items-end gap-1.5" style={{ backgroundColor: previewBg }}>
+                  <div
+                    className="flex-1 h-6 rounded"
+                    style={{ backgroundColor: previewCard, border: '1px solid rgba(128,128,128,0.35)' }}
+                  />
                   <div className="w-3 h-3 rounded-full flex-shrink-0 mb-1.5" style={{ backgroundColor: accent }} />
                 </div>
                 <div className="px-2.5 py-2 bg-white dark:bg-gray-800">
