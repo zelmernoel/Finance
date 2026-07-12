@@ -97,7 +97,7 @@ export default function SettingsPage({
   const enabledCount = ANALYSIS_SECTIONS.filter(s => sections[s.id]).length;
   const resolvedDark = theme === 'dark' ||
     (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  const { activeBudgetId } = useBudget();
+  const { activeBudgetId, budgets, defaultBudgetId, setDefaultBudgetId } = useBudget();
 
   // profile
   const [name, setName]       = useState(settings.name);
@@ -346,6 +346,52 @@ export default function SettingsPage({
           </div>
         </form>
       </Card>
+
+      {/* ── Hauptbereich ─────────────────────────────────────────────────── */}
+      {budgets.length > 1 && (
+        <Card className="p-6">
+          <SectionLabel>Hauptbereich</SectionLabel>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
+            Dieser Bereich wird beim Öffnen der App automatisch angezeigt.
+          </p>
+          <div className="space-y-2">
+            {budgets.map(b => {
+              const isMain = b.id === defaultBudgetId;
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => setDefaultBudgetId(b.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border text-left transition-colors ${
+                    isMain
+                      ? 'border-transparent ring-2'
+                      : 'border-gray-200 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                  style={isMain ? { boxShadow: `0 0 0 2px ${accent}` } : undefined}
+                >
+                  <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{b.name}</span>
+                    <span className="block text-xs text-gray-400 dark:text-gray-500">
+                      {b.type === 'business' ? 'Firma' : 'Privat'}
+                    </span>
+                  </span>
+                  {isMain ? (
+                    <span className="text-xs font-medium flex items-center gap-1 flex-shrink-0" style={{ color: accent }}>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Hauptbereich
+                    </span>
+                  ) : (
+                    <span className="text-xs text-gray-400 dark:text-gray-500 flex-shrink-0">Auswählen</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       {/* ── Darstellung (Dark Mode) ──────────────────────────────────────── */}
       <Card className="p-6">
