@@ -35,6 +35,32 @@ export interface Budget {
   createdAt: string;
 }
 
+// ── Savings pots (Sparttöpfe) ─────────────────────────────────────────────────
+// Nur für eingeloggte Nutzer. Verteilung/Rückabwicklung laufen serverseitig
+// über DB-Trigger (siehe supabase/savings-pots.sql).
+
+export interface SavingsPot {
+  id: string;
+  budgetId: string;
+  name: string;
+  allocationPercent: number;   // 0–100
+  targetAmount?: number;       // optionales Sparziel
+  currentAmount: number;       // trigger-gepflegt (Summe der Zuweisungen)
+  color: string;               // hex
+  icon?: string;               // optionaler Emoji-/Icon-Identifier
+  sortOrder: number;           // höchste = neuester Topf, bekommt Rundungsrest
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PotAllocation {
+  id: string;
+  potId: string;
+  incomeTransactionId: string;
+  amount: number;
+  createdAt: string;
+}
+
 // ── Recurring transactions ────────────────────────────────────────────────────
 
 export type Frequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
@@ -64,4 +90,5 @@ export type Tab =
   | 'analysis'
   | 'recurring'
   | 'budgets'
+  | 'savings'
   | 'settings';

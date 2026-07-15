@@ -16,6 +16,7 @@ const NAV_TABS: { id: Tab; label: string }[] = [
   { id: 'transactions', label: 'Transaktionen' },
   { id: 'analysis',     label: 'Auswertungen' },
   { id: 'recurring',    label: 'Daueraufträge' },
+  { id: 'savings',      label: 'Sparttöpfe' },
 ];
 
 // ── Mobile bottom nav tabs ────────────────────────────────────────────────────
@@ -262,7 +263,7 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
 
             // "Mehr" tab — opens sheet instead of navigating
             if (t.id === 'settings') {
-              const moreActive = moreOpen || activeTab === 'settings' || activeTab === 'recurring' || activeTab === 'budgets';
+              const moreActive = moreOpen || activeTab === 'settings' || activeTab === 'recurring' || activeTab === 'budgets' || activeTab === 'savings';
               return (
                 <button
                   key="mehr"
@@ -312,6 +313,7 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
             <div className="mx-3 mb-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
               {([
                 { id: 'recurring' as Tab, label: 'Daueraufträge', desc: 'Wiederkehrende Buchungen verwalten' },
+                { id: 'savings'   as Tab, label: 'Sparttöpfe',     desc: 'Einnahmen automatisch verteilen' },
                 { id: 'budgets'   as Tab, label: 'Bereiche',       desc: 'Privates & anderes trennen' },
                 { id: 'settings'  as Tab, label: 'Einstellungen',  desc: 'Kategorien, Darstellung, Export' },
               ]).map((item, i, arr) => (

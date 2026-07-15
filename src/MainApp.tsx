@@ -15,6 +15,7 @@ import NewTransaction from './pages/NewTransaction';
 import Analysis from './pages/Analysis';
 import RecurringPage from './pages/RecurringPage';
 import BudgetsPage from './pages/BudgetsPage';
+import SavingsPotsPage from './pages/SavingsPotsPage';
 import SettingsPage from './pages/Settings';
 import {
   hasGuestData, getAllGuestData, clearAllGuestData,
@@ -298,6 +299,7 @@ export default function MainApp() {
           />
         )}
         {tab === 'budgets' && <BudgetsPage />}
+        {tab === 'savings' && <SavingsPotsPage />}
         {tab === 'settings' && (
           <SettingsPage
             settings={settings}
