@@ -10,7 +10,8 @@ import EmptyState from '../components/EmptyState';
 import {
   formatEuro, getCurrentMonth, filterByMonth, getLast12Months,
   getCustomMonthRange,
-  groupByCategory, computeBalance, CHART_INCOME, CHART_EXPENSE, CHART_COLORS, ACCENT
+  groupByCategory, computeBalance, CHART_INCOME, CHART_EXPENSE, CHART_COLORS, ACCENT,
+  formatAxisEuro
 } from '../utils';
 import { useChartTheme } from '../hooks/useChartTheme';
 
@@ -140,7 +141,7 @@ export default function Dashboard({ transactions, startingBalance, userName, onN
             <BarChart data={barData} barGap={2} barCategoryGap="30%">
               <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={formatAxisEuro} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
               <Tooltip formatter={euroFormatter} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
               <Legend wrapperStyle={{ fontSize: 12, color: ct.tick }} />
               <Bar dataKey="Einnahmen" fill={CHART_INCOME} radius={[2, 2, 0, 0]} />
@@ -163,7 +164,7 @@ export default function Dashboard({ transactions, startingBalance, userName, onN
                   <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false}
                     tickFormatter={(v) => v.slice(5)} interval="preserveStartEnd" />
-                  <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={formatAxisEuro} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
                   <Tooltip formatter={euroFormatter} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
                   <Line type="monotone" dataKey="Kontostand" stroke={ACCENT} strokeWidth={2} dot={false} />
                 </LineChart>

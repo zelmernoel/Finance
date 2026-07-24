@@ -8,6 +8,17 @@ export function formatEuro(amount: number): string {
   }).format(amount);
 }
 
+/**
+ * Achsenbeschriftung für Diagramme. Skaliert mit dem Wert statt fest in Tausend
+ * zu rechnen — sonst steht bei Beträgen unter 1.000 € überall „0k".
+ */
+export function formatAxisEuro(v: number): string {
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000) return `${(v / 1_000_000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} Mio`;
+  if (abs >= 10_000)    return `${(v / 1_000).toLocaleString('de-DE', { maximumFractionDigits: 0 })}k`;
+  return v.toLocaleString('de-DE', { maximumFractionDigits: 0 });
+}
+
 export function formatDate(isoDate: string): string {
   const [year, month, day] = isoDate.split('-');
   return `${day}.${month}.${year}`;

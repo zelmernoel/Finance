@@ -9,16 +9,13 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import EmptyState from '../components/EmptyState';
 import {
   formatEuro, getCurrentMonth, filterByMonth, getLast12Months,
-  getCustomMonthRange, groupByCategory, ACCENT, CHART_COLORS,
+  getCustomMonthRange, groupByCategory, ACCENT, CHART_COLORS, formatAxisEuro,
 } from '../utils';
 import { useTheme } from '../hooks/useTheme';
 import { useChartTheme } from '../hooks/useChartTheme';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const euroFmt = (v: any) => formatEuro(typeof v === 'number' ? v : 0);
-function smartTick(v: number): string {
-  return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${v.toFixed(0)}`;
-}
 const WEEKDAYS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 
 interface Props {
@@ -241,7 +238,7 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
                 <LineChart data={catDetailData}>
                   <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={smartTick} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={formatAxisEuro} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
                   <Tooltip formatter={euroFmt} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
                   <Line type="monotone" dataKey="Betrag" stroke={ACCENT} strokeWidth={2} dot={{ r: 3, fill: ACCENT }} />
                 </LineChart>
@@ -261,7 +258,7 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={top5Data} layout="vertical" barGap={4} barCategoryGap="30%">
                 <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} horizontal={false} />
-                <XAxis type="number" tickFormatter={smartTick} tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} />
+                <XAxis type="number" tickFormatter={formatAxisEuro} tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="cat" tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} width={90} />
                 <Tooltip formatter={euroFmt} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
                 <Bar dataKey="current" name="Lfd. Monat" fill={ACCENT} radius={[0, 2, 2, 0]} />
@@ -301,7 +298,7 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={categoryRanking.slice(0, 7)} layout="vertical" barCategoryGap="30%">
                 <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} horizontal={false} />
-                <XAxis type="number" tickFormatter={smartTick} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+                <XAxis type="number" tickFormatter={formatAxisEuro} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="cat" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} width={80} />
                 <Tooltip formatter={euroFmt} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
                 <Bar dataKey="avg" name="Ø / Monat" radius={[0, 2, 2, 0]}>
@@ -323,7 +320,7 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
             <LineChart data={savingTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={smartTick} tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} />
+              <YAxis tickFormatter={formatAxisEuro} tick={{ fontSize: 11, fill: ct.tick }} axisLine={false} tickLine={false} />
               <Tooltip formatter={euroFmt} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
               <Line type="monotone" dataKey="Sparrate" stroke={ACCENT} strokeWidth={2} dot={{ r: 3, fill: ACCENT }} />
             </LineChart>
