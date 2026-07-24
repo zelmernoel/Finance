@@ -9,6 +9,8 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme, ACCENT_PRESETS, PALETTES, ANALYSIS_SECTIONS, palettePinnedTheme } from '../hooks/useTheme';
 import type { Theme } from '../hooks/useTheme';
 import { useBudget } from '../context/BudgetContext';
+import { useChartTheme } from '../hooks/useChartTheme';
+import { loadCategoryColors, saveCategoryColors } from '../hooks/useCategoryColors';
 
 interface Props {
   settings: Settings;
@@ -98,6 +100,7 @@ export default function SettingsPage({
   const resolvedDark = theme === 'dark' ||
     (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   const { activeBudgetId, budgets, defaultBudgetId, setDefaultBudgetId } = useBudget();
+  const chartTheme = useChartTheme();
 
   // profile
   const [name, setName]       = useState(settings.name);
@@ -113,6 +116,19 @@ export default function SettingsPage({
   const [catTab, setCatTab]           = useState<'expense' | 'income'>('expense');
   const [newCatName, setNewCatName]   = useState('');
   const [catDeleteConfirm, setCatDeleteConfirm] = useState<string | null>(null);
+
+  // category colours (localStorage, keyed by budgetId — wie die Reihenfolge)
+  const [catColorMap, setCatColorMap] = useState<Record<string, string>>(
+    () => loadCategoryColors(activeBudgetId)
+  );
+  const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
+
+  function setCatColor(id: string, color: string | null) {
+    const next = { ...catColorMap };
+    if (color) next[id] = color; else delete next[id];
+    setCatColorMap(next);
+    saveCategoryColors(activeBudgetId, next);
+  }
 
   // category order (localStorage, keyed by budgetId)
   const orderKey = `catOrder:${activeBudgetId ?? 'guest'}`;
@@ -808,7 +824,7 @@ export default function SettingsPage({
 
         {/* Category list for active tab */}
         <ul className="space-y-0.5">
-          {activeCats.map((c, idx) => (
+          {activeCats.flatMap((c, idx) => [
             <li
               key={c.id}
               className={`flex items-center justify-between py-1.5 border-b border-gray-100 dark:border-gray-700 last:border-0 gap-2 ${
@@ -832,6 +848,16 @@ export default function SettingsPage({
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
                 </button>
               </div>
+              {/* Farbe: eigene Farbe oder automatisch aus der Akzentfarbe */}
+              <button
+                type="button"
+                onClick={() => setColorPickerFor(colorPickerFor === c.id ? null : c.id)}
+                title={catColorMap[c.id] ? 'Eigene Farbe' : 'Standardfarbe (automatisch)'}
+                className="w-4 h-4 rounded-full flex-shrink-0 transition-transform hover:scale-125"
+                style={catColorMap[c.id]
+                  ? { backgroundColor: catColorMap[c.id] }
+                  : { border: '1.5px dashed', borderColor: chartTheme.tick }}
+              />
               <span className="text-sm text-gray-800 dark:text-gray-200 flex-1">{c.name}</span>
               <span className="text-xs text-gray-400 dark:text-gray-500">
                 {c.monthlyBudget ? (
@@ -872,8 +898,33 @@ export default function SettingsPage({
                   </svg>
                 </button>
               )}
-            </li>
-          ))}
+            </li>,
+            colorPickerFor === c.id && (
+              <li key={`${c.id}-color`} className="slide-in-up py-2 pl-6 border-b border-gray-100 dark:border-gray-700">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => { setCatColor(c.id, null); setColorPickerFor(null); }}
+                    className={`px-2 py-1 text-xs rounded border ${!catColorMap[c.id] ? 'border-transparent ring-2' : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400'}`}
+                    style={!catColorMap[c.id] ? { boxShadow: `0 0 0 2px ${accent}`, color: accent } : undefined}
+                  >
+                    Standard
+                  </button>
+                  {chartTheme.series.map(col => (
+                    <button
+                      key={col} type="button"
+                      onClick={() => { setCatColor(c.id, col); setColorPickerFor(null); }}
+                      className={`w-6 h-6 rounded-full transition-transform hover:scale-110 ${catColorMap[c.id] === col ? 'ring-2 ring-offset-2 ring-gray-400 dark:ring-gray-500 dark:ring-offset-gray-800' : ''}`}
+                      style={{ backgroundColor: col }}
+                    />
+                  ))}
+                </div>
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
+                  „Standard" vergibt automatisch einen Ton deiner Akzentfarbe.
+                </p>
+              </li>
+            ),
+          ])}
           {activeCats.length === 0 && (
             <li className="text-xs text-gray-400 dark:text-gray-500 py-2">Keine Kategorien.</li>
           )}

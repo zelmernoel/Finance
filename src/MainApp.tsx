@@ -42,6 +42,8 @@ export default function MainApp() {
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
   const [showMigrate, setShowMigrate] = useState(false);
+  // Vom Dashboard angeklickter Monat, den die Auswertung anzeigen soll
+  const [analysisMonth, setAnalysisMonth] = useState<{ year: number; month: number } | undefined>();
   const prevUserRef                   = useRef<string | null>(null);
 
   // ── Load data whenever storage (= budget) changes ─────────────────────────
@@ -247,16 +249,25 @@ export default function MainApp() {
   return (
     <div className="min-h-screen bg-page">
       {!user && <GuestBanner />}
-      <Navigation activeTab={tab} onTabChange={setTab} />
+      <Navigation
+        activeTab={tab}
+        onTabChange={(t) => {
+          // Direkt über die Navigation aufgerufen → wieder laufender Monat
+          if (t === 'analysis') setAnalysisMonth(undefined);
+          setTab(t);
+        }}
+      />
 
       <main className="max-w-screen-xl mx-auto px-4 lg:px-6 py-4 lg:py-6 pb-24 lg:pb-6">
         <div key={tab} className="tab-enter">
         {tab === 'dashboard' && (
           <Dashboard
             transactions={transactions}
+            categories={categories}
             startingBalance={settings.startingBalance}
             userName={settings.name}
             onNavigateToNew={() => setTab('new')}
+            onNavigateToMonth={(year, month) => { setAnalysisMonth({ year, month }); setTab('analysis'); }}
             monthStart={settings.monthStart ?? 1}
           />
         )}
@@ -288,6 +299,7 @@ export default function MainApp() {
             onNavigateToNew={() => setTab('new')}
             onUpdateCategory={handleUpdateCategory}
             monthStart={settings.monthStart ?? 1}
+            initialMonth={analysisMonth}
           />
         )}
         {tab === 'recurring' && storage && activeBudgetId && (

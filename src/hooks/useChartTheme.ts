@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTheme } from './useTheme';
+import { buildSeriesColors } from '../utils';
 
 export interface ChartTheme {
   grid: string;
@@ -10,6 +11,10 @@ export interface ChartTheme {
   tooltipText: string;
   /** Outline around scatter dots / line dots, so they stay legible on any surface. */
   dotStroke: string;
+  /** Categorical palette derived from the accent colour. */
+  series: string[];
+  /** Subtle hover highlight for bar charts. */
+  cursorFill: string;
 }
 
 function readChartTheme(): ChartTheme {
@@ -26,6 +31,8 @@ function readChartTheme(): ChartTheme {
     tooltipBorder: dark ? v('--color-gray-700') : v('--color-gray-200'),
     tooltipText:   dark ? v('--color-gray-100') : v('--color-gray-900'),
     dotStroke:     dark ? v('--color-gray-900') : '#ffffff',
+    series:        [],
+    cursorFill:    dark ? v('--color-gray-700') : v('--color-gray-200'),
   };
 }
 
@@ -34,7 +41,7 @@ function readChartTheme(): ChartTheme {
  * `var(--x)`. So we read the resolved palette values and hand over plain hex.
  */
 export function useChartTheme(): ChartTheme {
-  const { theme, palette } = useTheme();
+  const { theme, palette, accent } = useTheme();
   const [colors, setColors] = useState<ChartTheme>(readChartTheme);
 
   // `theme`/`palette` changes mutate classes on <html> before this effect runs.
@@ -49,5 +56,12 @@ export function useChartTheme(): ChartTheme {
     return () => mq.removeEventListener('change', handler);
   }, [theme]);
 
-  return colors;
+  // Kategorienfarben folgen der Akzentfarbe, damit Donut & Ranking nicht
+  // blau bleiben, wenn der Nutzer z. B. Pink wählt.
+  const isDark = theme === 'dark' ||
+    (theme === 'system' && typeof window !== 'undefined' &&
+     window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const series = useMemo(() => buildSeriesColors(accent, 10, isDark), [accent, isDark]);
+
+  return useMemo(() => ({ ...colors, series }), [colors, series]);
 }

@@ -58,6 +58,18 @@ export function getCustomMonthRange(monthStart: number = 1): { from: string; to:
   return { from, to };
 }
 
+/**
+ * Zeitraum eines bestimmten Abrechnungsmonats — dieselbe Logik wie
+ * getCustomMonthRange, aber für ein frei gewähltes Jahr/Monat-Paar.
+ */
+export function getMonthRange(year: number, month: number, monthStart: number = 1): { from: string; to: string } {
+  const from = `${year}-${String(month).padStart(2, '0')}-${String(monthStart).padStart(2, '0')}`;
+  const nextStart = new Date(year, month, monthStart); // month ist 1-basiert → nächster Monat
+  nextStart.setDate(nextStart.getDate() - 1);
+  const to = `${nextStart.getFullYear()}-${String(nextStart.getMonth() + 1).padStart(2, '0')}-${String(nextStart.getDate()).padStart(2, '0')}`;
+  return { from, to };
+}
+
 export function isSameMonth(isoDate: string, year: number, month: number): boolean {
   const [y, m] = isoDate.split('-').map(Number);
   return y === year && m === month;
@@ -201,6 +213,66 @@ export function parseImportCSV(text: string): CsvParseResult {
   }
 
   return { valid, errors };
+}
+
+// ── Kategoriefarben aus der Akzentfarbe ableiten ─────────────────────────────
+// Die Kategorie-Paletten dürfen nicht fest blau sein, sonst passen sie bei
+// jeder anderen Akzentfarbe nicht mehr zum Rest der Oberfläche.
+
+function hexToHsl(hex: string): [number, number, number] {
+  const m = hex.replace('#', '');
+  const r = parseInt(m.slice(0, 2), 16) / 255;
+  const g = parseInt(m.slice(2, 4), 16) / 255;
+  const b = parseInt(m.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h: number;
+  if (max === r)      h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else                h = ((r - g) / d + 4) / 6;
+  return [h * 360, s, l];
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  h = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let rgb: [number, number, number];
+  if      (h <  60) rgb = [c, x, 0];
+  else if (h < 120) rgb = [x, c, 0];
+  else if (h < 180) rgb = [0, c, x];
+  else if (h < 240) rgb = [0, x, c];
+  else if (h < 300) rgb = [x, 0, c];
+  else              rgb = [c, 0, x];
+  const to = (v: number) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+  return `#${to(rgb[0])}${to(rgb[1])}${to(rgb[2])}`;
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/**
+ * Kategoriale Palette aus der Akzentfarbe: gleicher Grundton, gestaffelte
+ * Helligkeit plus leichte Farbtondrift, damit benachbarte Segmente
+ * unterscheidbar bleiben.
+ */
+export function buildSeriesColors(accent: string, count = 10, dark = false): string[] {
+  let h = 210, s = 0.4;
+  try { [h, s] = hexToHsl(accent); } catch { /* Fallback bleibt */ }
+  const sat = clamp(s, 0.3, 0.85);
+  const lo = dark ? 0.40 : 0.34;
+  const hi = dark ? 0.80 : 0.74;
+  return Array.from({ length: count }, (_, i) => {
+    const t = count === 1 ? 0.5 : i / (count - 1);
+    return hslToHex(
+      h + (i % 2 ? 12 : -8) + t * 20,
+      clamp(sat * (1 - 0.3 * t), 0.22, 0.9),
+      lo + (hi - lo) * t,
+    );
+  });
 }
 
 export const ACCENT = 'var(--accent)';

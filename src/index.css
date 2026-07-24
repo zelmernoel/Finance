@@ -220,6 +220,18 @@ html.dark {
   color: var(--color-gray-50);
 }
 
+/* Diagramme sind Anzeigeflächen, keine Bedienelemente: Recharts setzt beim
+   Klick einen Fokusring um die gesamte Zeichenfläche, der wie ein fehlerhafter
+   Rahmen aussieht. */
+.recharts-wrapper:focus,
+.recharts-wrapper:focus-visible,
+.recharts-surface:focus,
+.recharts-surface:focus-visible,
+.recharts-wrapper *:focus,
+.recharts-wrapper *:focus-visible {
+  outline: none !important;
+}
+
 /* Full-height page wrappers. Replaces `bg-white dark:bg-gray-900`, which painted
    over the tint that light palettes put on <html>. */
 .bg-page {

@@ -3,23 +3,28 @@ import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
-import type { Transaction } from '../types';
+import type { Category, Transaction } from '../types';
 import Card from '../components/Card';
 import ErrorBoundary from '../components/ErrorBoundary';
 import EmptyState from '../components/EmptyState';
 import {
   formatEuro, getCurrentMonth, filterByMonth, getLast12Months,
   getCustomMonthRange,
-  groupByCategory, computeBalance, CHART_INCOME, CHART_EXPENSE, CHART_COLORS, ACCENT,
+  groupByCategory, computeBalance, CHART_INCOME, CHART_EXPENSE, ACCENT,
   formatAxisEuro
 } from '../utils';
 import { useChartTheme } from '../hooks/useChartTheme';
+import { useCategoryColorResolver } from '../hooks/useCategoryColors';
+import { useBudget } from '../context/BudgetContext';
 
 interface Props {
   transactions: Transaction[];
+  categories: Category[];
   startingBalance: number;
   userName: string;
   onNavigateToNew: () => void;
+  /** Klick auf einen Monatsbalken → Auswertung dieses Monats. */
+  onNavigateToMonth?: (year: number, month: number) => void;
   monthStart?: number;
 }
 
@@ -48,10 +53,15 @@ function KpiCard({ label, value, highlight = false }: { label: string; value: st
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const euroFormatter = (value: any) => formatEuro(typeof value === 'number' ? value : 0);
 
-export default function Dashboard({ transactions, startingBalance, userName, onNavigateToNew, monthStart = 1 }: Props) {
+export default function Dashboard({
+  transactions, categories, startingBalance, userName,
+  onNavigateToNew, onNavigateToMonth, monthStart = 1,
+}: Props) {
   const [donutRange, setDonutRange] = useState<DonutRange>('current');
   const { year, month } = getCurrentMonth();
   const ct = useChartTheme();
+  const { activeBudgetId } = useBudget();
+  const catColor = useCategoryColorResolver(activeBudgetId, categories, ct.series);
   const tooltipStyle = {
     fontSize: 12,
     backgroundColor: ct.tooltipBg,
@@ -73,7 +83,7 @@ export default function Dashboard({ transactions, startingBalance, userName, onN
   const barData = useMemo(() => getLast12Months().map(({ year, month, label }) => {
     const monthTx = filterByMonth(transactions, year, month);
     return {
-      label,
+      label, year, month,
       Einnahmen: monthTx.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0),
       Ausgaben:  monthTx.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0),
     };
@@ -136,13 +146,30 @@ export default function Dashboard({ transactions, startingBalance, userName, onN
       {/* Bar chart */}
       <ErrorBoundary>
         <Card className="p-4 md:p-5">
-          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Einnahmen vs. Ausgaben (letzte 12 Monate)</h2>
+          <div className="flex items-baseline justify-between gap-2 mb-4">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Einnahmen vs. Ausgaben (letzte 12 Monate)</h2>
+            {onNavigateToMonth && (
+              <span className="text-xs text-gray-400 dark:text-gray-500 hidden sm:block">Monat anklicken für die Auswertung</span>
+            )}
+          </div>
           <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={barData} barGap={2} barCategoryGap="30%">
+            <BarChart
+              data={barData} barGap={2} barCategoryGap="30%"
+              className={onNavigateToMonth ? 'cursor-pointer' : undefined}
+              onClick={(state: unknown) => {
+                const s = state as { activePayload?: Array<{ payload?: { year: number; month: number } }> };
+                const p = s?.activePayload?.[0]?.payload;
+                if (p && onNavigateToMonth) onNavigateToMonth(p.year, p.month);
+              }}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
               <YAxis tickFormatter={formatAxisEuro} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={euroFormatter} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
+              {/* Dezenter Hover: nur eine leichte Umrandung statt der kräftigen Standardfläche */}
+              <Tooltip
+                formatter={euroFormatter} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }}
+                cursor={{ fill: ct.cursorFill, fillOpacity: 0.18, stroke: ct.cursorFill, strokeWidth: 1, radius: 4 }}
+              />
               <Legend wrapperStyle={{ fontSize: 12, color: ct.tick }} />
               <Bar dataKey="Einnahmen" fill={CHART_INCOME} radius={[2, 2, 0, 0]} />
               <Bar dataKey="Ausgaben" fill={CHART_EXPENSE} radius={[2, 2, 0, 0]} />
@@ -203,8 +230,8 @@ export default function Dashboard({ transactions, startingBalance, userName, onN
                   <PieChart>
                     <Pie data={donutData} cx="50%" cy="50%"
                       innerRadius={50} outerRadius={78} dataKey="value" paddingAngle={2}>
-                      {donutData.map((_, i) => (
-                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                      {donutData.map((d, i) => (
+                        <Cell key={i} fill={catColor(d.name, i)} />
                       ))}
                     </Pie>
                     <Tooltip formatter={euroFormatter} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
@@ -213,7 +240,7 @@ export default function Dashboard({ transactions, startingBalance, userName, onN
                 <div className="flex-1 space-y-1.5 overflow-hidden">
                   {donutData.slice(0, 6).map((d, i) => (
                     <div key={d.name} className="flex items-center gap-2 text-xs">
-                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: catColor(d.name, i) }} />
                       <span className="text-gray-600 dark:text-gray-400 truncate flex-1">{d.name}</span>
                       <span className="text-gray-900 dark:text-gray-100 font-medium">{formatEuro(d.value)}</span>
                     </div>

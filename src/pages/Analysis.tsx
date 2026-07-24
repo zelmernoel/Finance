@@ -9,10 +9,12 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import EmptyState from '../components/EmptyState';
 import {
   formatEuro, getCurrentMonth, filterByMonth, getLast12Months,
-  getCustomMonthRange, groupByCategory, ACCENT, CHART_COLORS, formatAxisEuro,
+  getCustomMonthRange, getMonthRange, groupByCategory, ACCENT, formatAxisEuro,
 } from '../utils';
 import { useTheme } from '../hooks/useTheme';
 import { useChartTheme } from '../hooks/useChartTheme';
+import { useCategoryColorResolver } from '../hooks/useCategoryColors';
+import { useBudget } from '../context/BudgetContext';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const euroFmt = (v: any) => formatEuro(typeof v === 'number' ? v : 0);
@@ -24,14 +26,38 @@ interface Props {
   onNavigateToNew: () => void;
   onUpdateCategory: (id: string, patch: { monthlyBudget?: number }) => Promise<void>;
   monthStart?: number;
+  /** Vom Dashboard angeklickter Monat — sonst der laufende Monat. */
+  initialMonth?: { year: number; month: number };
 }
 
-export default function Analysis({ transactions, categories, onNavigateToNew, onUpdateCategory, monthStart = 1 }: Props) {
-  const { year, month } = getCurrentMonth();
-  const { from: periodFrom, to: periodTo } = getCustomMonthRange(monthStart);
+export default function Analysis({
+  transactions, categories, onNavigateToNew, onUpdateCategory, monthStart = 1, initialMonth,
+}: Props) {
+  const { year } = getCurrentMonth();
+
+  // Laufender Abrechnungsmonat als Ausgangspunkt (berücksichtigt monthStart)
+  const currentPeriod = getCustomMonthRange(monthStart);
+  const currentYM = {
+    year:  Number(currentPeriod.from.slice(0, 4)),
+    month: Number(currentPeriod.from.slice(5, 7)),
+  };
+  const [viewMonth, setViewMonth] = useState(initialMonth ?? currentYM);
+  const isCurrentMonth = viewMonth.year === currentYM.year && viewMonth.month === currentYM.month;
+
+  const { from: periodFrom, to: periodTo } = getMonthRange(viewMonth.year, viewMonth.month, monthStart);
+  const monthLabel = new Date(viewMonth.year, viewMonth.month - 1, 1)
+    .toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
+
+  function shiftMonth(delta: number) {
+    const d = new Date(viewMonth.year, viewMonth.month - 1 + delta, 1);
+    setViewMonth({ year: d.getFullYear(), month: d.getMonth() + 1 });
+  }
+
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const { sections } = useTheme();
   const ct = useChartTheme();
+  const { activeBudgetId } = useBudget();
+  const catColor = useCategoryColorResolver(activeBudgetId, categories, ct.series);
   const tooltipStyle = {
     fontSize: 12,
     backgroundColor: ct.tooltipBg,
@@ -44,8 +70,8 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
     transactions.filter(t => t.type === 'expense' && t.date >= periodFrom && t.date <= periodTo),
     [transactions, periodFrom, periodTo]);
 
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const prevYear  = month === 1 ? year - 1 : year;
+  const prevMonth = viewMonth.month === 1 ? 12 : viewMonth.month - 1;
+  const prevYear  = viewMonth.month === 1 ? viewMonth.year - 1 : viewMonth.year;
   const prevExpenses = useMemo(() =>
     filterByMonth(transactions, prevYear, prevMonth).filter(t => t.type === 'expense'),
     [transactions, prevYear, prevMonth]);
@@ -143,6 +169,39 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
   return (
     <div className="space-y-6">
 
+      {/* ── Monatsauswahl (steuert alle monatsbezogenen Karten) ────────── */}
+      <Card className="p-3">
+        <div className="flex items-center justify-between gap-2">
+          <button
+            onClick={() => shiftMonth(-1)}
+            className="p-2 rounded text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
+            aria-label="Vorheriger Monat"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div className="text-center min-w-0">
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{monthLabel}</p>
+            {!isCurrentMonth && (
+              <button onClick={() => setViewMonth(currentYM)} className="text-xs hover:underline" style={{ color: ACCENT }}>
+                zurück zum laufenden Monat
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => shiftMonth(1)}
+            disabled={isCurrentMonth}
+            className="p-2 rounded text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-30 disabled:hover:bg-transparent"
+            aria-label="Nächster Monat"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+      </Card>
+
       {/* ── Kategorie-Ranking ─────────────────────────────────────────── */}
       {sections.ranking && <ErrorBoundary>
         <Card className="p-5">
@@ -168,7 +227,7 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
                     <td className="py-2 pl-0">
                       <div className="flex items-center gap-2">
                         <div className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                          style={{ backgroundColor: catColor(row.cat, i) }} />
                         <span className="font-medium text-gray-900 dark:text-gray-100">{row.cat}</span>
                       </div>
                     </td>
@@ -286,7 +345,7 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
                 {categoryRanking.map((row, i) => (
                   <tr key={row.cat} className="border-b border-gray-100 dark:border-gray-700">
                     <td className="py-2 flex items-center gap-2 text-gray-800 dark:text-gray-200">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }} />
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: catColor(row.cat, i) }} />
                       {row.cat}
                     </td>
                     <td className="py-2 text-right font-medium text-gray-900 dark:text-gray-100">{formatEuro(row.avg)}</td>
@@ -302,8 +361,8 @@ export default function Analysis({ transactions, categories, onNavigateToNew, on
                 <YAxis type="category" dataKey="cat" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} width={80} />
                 <Tooltip formatter={euroFmt} contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }} />
                 <Bar dataKey="avg" name="Ø / Monat" radius={[0, 2, 2, 0]}>
-                  {categoryRanking.slice(0, 7).map((_, i) => (
-                    <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                  {categoryRanking.slice(0, 7).map((row, i) => (
+                    <Cell key={i} fill={catColor(row.cat, i)} />
                   ))}
                 </Bar>
               </BarChart>
