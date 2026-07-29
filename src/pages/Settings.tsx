@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useCallback } from 'react';
 import { useRef, useState, type FormEvent, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { Category, Settings, Transaction } from '../types';
@@ -11,6 +11,8 @@ import type { Theme } from '../hooks/useTheme';
 import { useBudget } from '../context/BudgetContext';
 import { useChartTheme } from '../hooks/useChartTheme';
 import { loadCategoryColors, saveCategoryColors } from '../hooks/useCategoryColors';
+import { createSupabaseAdapter } from '../lib/supabaseAdapter';
+import { createLocalStorageAdapter } from '../lib/localStorageAdapter';
 
 interface Props {
   settings: Settings;
@@ -99,7 +101,7 @@ export default function SettingsPage({
   const enabledCount = ANALYSIS_SECTIONS.filter(s => sections[s.id]).length;
   const resolvedDark = theme === 'dark' ||
     (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  const { activeBudgetId, budgets, defaultBudgetId, setDefaultBudgetId } = useBudget();
+  const { activeBudgetId, activeBudget, budgets, defaultBudgetId, setDefaultBudgetId } = useBudget();
   const chartTheme = useChartTheme();
 
   // profile
@@ -117,39 +119,99 @@ export default function SettingsPage({
   const hasTransactions = transactions.length > 0;
   const [showStartBalance, setShowStartBalance] = useState(!hasTransactions);
 
-  // Kontostand-Abgleich
-  const computedBalance = useMemo(
+  // ── Kontostand-Abgleich ───────────────────────────────────────────────────
+  // Wahlweise nur der aktive Bereich oder alle Bereiche zusammen. Bei "alle"
+  // muss die Korrektur trotzdem in einem Bereich gebucht werden — welcher, ist
+  // wählbar (Vorgabe: Hauptbereich), denn eine anteilige Verteilung würde
+  // Buchungen in Bereichen erzeugen, die gar nicht abweichen.
+  const [reconcileScope, setReconcileScope] = useState<'budget' | 'all'>('budget');
+  const [allBalances, setAllBalances] = useState<Record<string, number> | null>(null);
+  const [allBalancesLoading, setAllBalancesLoading] = useState(false);
+  const [reconcileTarget, setReconcileTarget] = useState<string | null>(null);
+
+  const budgetBalance = useMemo(
     () => settings.startingBalance + computeBalance(transactions),
     [settings.startingBalance, transactions],
   );
+
   const [countedInput, setCountedInput] = useState('');
   const [reconciling, setReconciling]   = useState(false);
   const [reconcileError, setReconcileError] = useState<string | null>(null);
   const [reconcileDone, setReconcileDone]   = useState<number | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const loadAllBalances = useCallback(async () => {
+    if (!budgets.length) return;
+    setAllBalancesLoading(true);
+    const entries = await Promise.all(budgets.map(async b => {
+      const adapter = user
+        ? createSupabaseAdapter(user.id, b.id)
+        : createLocalStorageAdapter(b.id);
+      try {
+        const [txs, s] = await Promise.all([adapter.getTransactions(), adapter.getSettings()]);
+        const inc = txs.filter(t => t.type === 'income').reduce((a, t) => a + t.amount, 0);
+        const exp = txs.filter(t => t.type === 'expense').reduce((a, t) => a + t.amount, 0);
+        return [b.id, (s.startingBalance ?? 0) + inc - exp] as const;
+      } catch {
+        return [b.id, 0] as const;
+      }
+    }));
+    setAllBalances(Object.fromEntries(entries));
+    setAllBalancesLoading(false);
+  }, [budgets, user]);
+
+  // Erst laden, wenn der Nutzer auf "Alle Bereiche" umschaltet
+  useEffect(() => {
+    if (reconcileScope === 'all') loadAllBalances();
+  }, [reconcileScope, loadAllBalances, reloadKey]);
+
+  const totalAllBalance = allBalances
+    ? Object.values(allBalances).reduce((s, v) => s + v, 0)
+    : null;
+
+  const baseBalance = reconcileScope === 'all' ? totalAllBalance : budgetBalance;
+  const targetBudgetId = reconcileScope === 'all'
+    ? (reconcileTarget ?? defaultBudgetId ?? activeBudgetId)
+    : activeBudgetId;
+  const targetBudget = budgets.find(b => b.id === targetBudgetId);
 
   const countedValue = countedInput.trim() ? parseFloat(countedInput.replace(',', '.')) : NaN;
-  const reconcileDiff = isNaN(countedValue)
+  const reconcileDiff = isNaN(countedValue) || baseBalance === null
     ? null
-    : Math.round((countedValue - computedBalance) * 100) / 100;
+    : Math.round((countedValue - baseBalance) * 100) / 100;
 
   async function handleReconcile() {
-    if (reconcileDiff === null || reconcileDiff === 0) return;
+    if (reconcileDiff === null || reconcileDiff === 0 || baseBalance === null) return;
     setReconciling(true);
     setReconcileError(null);
     try {
       const today = new Date();
       const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      await onImportTransactions([{
+      const scopeNote = reconcileScope === 'all' ? 'alle Bereiche' : (activeBudget?.name ?? 'Bereich');
+      const tx: Transaction = {
         id: crypto.randomUUID(),
         date: iso,
         type: reconcileDiff > 0 ? 'income' : 'expense',
         amount: Math.abs(reconcileDiff),
         category: 'Korrektur',
         description: 'Kontostand-Abgleich',
-        note: `Gezählt: ${formatEuro(countedValue)} · vorher berechnet: ${formatEuro(computedBalance)}`,
-      }]);
+        note: `Gezählt: ${formatEuro(countedValue)} · vorher berechnet: ${formatEuro(baseBalance)} (${scopeNote})`,
+      };
+
+      if (targetBudgetId && targetBudgetId !== activeBudgetId) {
+        // Anderer Bereich → direkt über dessen Adapter buchen
+        const adapter = user
+          ? createSupabaseAdapter(user.id, targetBudgetId)
+          : createLocalStorageAdapter(targetBudgetId);
+        await adapter.importTransactions([tx]);
+      } else {
+        // Aktiver Bereich → über den Handler, damit die Oberfläche sofort nachzieht
+        await onImportTransactions([tx]);
+      }
+
       setReconcileDone(reconcileDiff);
       setCountedInput('');
+      setReloadKey(k => k + 1);
     } catch (e) {
       setReconcileError(e instanceof Error ? e.message : 'Abgleich fehlgeschlagen.');
     } finally {
@@ -439,12 +501,53 @@ export default function SettingsPage({
             Korrekturbuchung ergänzt, damit alles wieder stimmt.
           </p>
 
+          {/* Umfang: nur dieser Bereich oder alle zusammen */}
+          {budgets.length > 1 && (
+            <div className="flex rounded border border-gray-200 dark:border-gray-600 overflow-hidden mb-4">
+              {([
+                { key: 'budget' as const, label: activeBudget?.name ?? 'Dieser Bereich' },
+                { key: 'all' as const,    label: 'Alle Bereiche' },
+              ]).map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => { setReconcileScope(key); setCountedInput(''); setReconcileDone(null); }}
+                  className={`flex-1 py-2 text-sm font-medium transition-colors min-h-[40px] truncate px-2 ${
+                    reconcileScope === key
+                      ? 'text-white'
+                      : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                  }`}
+                  style={reconcileScope === key ? { backgroundColor: ACCENT } : undefined}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700">
-            <span className="text-sm text-gray-500 dark:text-gray-400">Berechnet</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">
+              Berechnet{reconcileScope === 'all' ? ' (alle Bereiche)' : ''}
+            </span>
             <span className="text-sm font-medium text-gray-900 dark:text-gray-100 tabular-nums">
-              {formatEuro(computedBalance)}
+              {baseBalance === null
+                ? (allBalancesLoading ? 'Lädt…' : '—')
+                : formatEuro(baseBalance)}
             </span>
           </div>
+
+          {/* Aufschlüsselung je Bereich */}
+          {reconcileScope === 'all' && allBalances && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 pt-2">
+              {budgets.map(b => (
+                <span key={b.id} className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
+                  {b.name}
+                  <span className="tabular-nums">{formatEuro(allBalances[b.id] ?? 0)}</span>
+                </span>
+              ))}
+            </div>
+          )}
 
           <div className="mt-4">
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
@@ -456,11 +559,34 @@ export default function SettingsPage({
                 type="text" inputMode="decimal"
                 value={countedInput}
                 onChange={e => { setCountedInput(e.target.value); setReconcileDone(null); }}
-                placeholder={formatEuro(computedBalance).replace(' €', '')}
+                placeholder={baseBalance === null ? '0,00' : formatEuro(baseBalance).replace(' €', '')}
                 className={`${inputCls} pl-7`}
               />
             </div>
           </div>
+
+          {/* Zielbereich für die Korrekturbuchung */}
+          {reconcileScope === 'all' && budgets.length > 1 && (
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+                Korrektur buchen in
+              </label>
+              <select
+                value={targetBudgetId ?? ''}
+                onChange={e => setReconcileTarget(e.target.value)}
+                className={inputCls}
+              >
+                {budgets.map(b => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}{b.id === defaultBudgetId ? ' (Hauptbereich)' : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                Die Differenz gilt für alle Bereiche zusammen, muss aber in einem gebucht werden.
+              </p>
+            </div>
+          )}
 
           {/* Live-Vorschau der Korrektur */}
           {reconcileDiff !== null && (
@@ -478,7 +604,8 @@ export default function SettingsPage({
                     style={reconcileDiff > 0 ? { color: ACCENT } : undefined}>
                     {reconcileDiff > 0 ? '+' : '−'} {formatEuro(Math.abs(reconcileDiff))}
                   </strong>
-                  {' '}wird als {reconcileDiff > 0 ? 'Einnahme' : 'Ausgabe'} in der Kategorie „Korrektur" gebucht.
+                  {' '}wird als {reconcileDiff > 0 ? 'Einnahme' : 'Ausgabe'} in der Kategorie „Korrektur" gebucht
+                  {reconcileScope === 'all' && targetBudget ? <> — in <strong>{targetBudget.name}</strong></> : null}.
                 </>
               )}
             </div>
