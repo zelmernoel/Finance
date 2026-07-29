@@ -3,7 +3,7 @@ import { useRef, useState, type FormEvent, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { Category, Settings, Transaction } from '../types';
 import Card from '../components/Card';
-import { ACCENT, formatEuro, downloadCSV, downloadJSON, parseImportCSV } from '../utils';
+import { ACCENT, formatEuro, downloadCSV, downloadJSON, parseImportCSV, computeBalance } from '../utils';
 import { exportTransactionsPDF } from '../lib/exportPDF';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, ACCENT_PRESETS, PALETTES, ANALYSIS_SECTIONS, palettePinnedTheme } from '../hooks/useTheme';
@@ -111,6 +111,51 @@ export default function SettingsPage({
   const [saving, setSaving]     = useState(false);
   const [saved, setSaved]       = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Anfangssaldo wird nach der ersten Buchung eingeklappt — ab dann zählt der
+  // Abgleich, nicht mehr der Startwert.
+  const hasTransactions = transactions.length > 0;
+  const [showStartBalance, setShowStartBalance] = useState(!hasTransactions);
+
+  // Kontostand-Abgleich
+  const computedBalance = useMemo(
+    () => settings.startingBalance + computeBalance(transactions),
+    [settings.startingBalance, transactions],
+  );
+  const [countedInput, setCountedInput] = useState('');
+  const [reconciling, setReconciling]   = useState(false);
+  const [reconcileError, setReconcileError] = useState<string | null>(null);
+  const [reconcileDone, setReconcileDone]   = useState<number | null>(null);
+
+  const countedValue = countedInput.trim() ? parseFloat(countedInput.replace(',', '.')) : NaN;
+  const reconcileDiff = isNaN(countedValue)
+    ? null
+    : Math.round((countedValue - computedBalance) * 100) / 100;
+
+  async function handleReconcile() {
+    if (reconcileDiff === null || reconcileDiff === 0) return;
+    setReconciling(true);
+    setReconcileError(null);
+    try {
+      const today = new Date();
+      const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      await onImportTransactions([{
+        id: crypto.randomUUID(),
+        date: iso,
+        type: reconcileDiff > 0 ? 'income' : 'expense',
+        amount: Math.abs(reconcileDiff),
+        category: 'Korrektur',
+        description: 'Kontostand-Abgleich',
+        note: `Gezählt: ${formatEuro(countedValue)} · vorher berechnet: ${formatEuro(computedBalance)}`,
+      }]);
+      setReconcileDone(reconcileDiff);
+      setCountedInput('');
+    } catch (e) {
+      setReconcileError(e instanceof Error ? e.message : 'Abgleich fehlgeschlagen.');
+    } finally {
+      setReconciling(false);
+    }
+  }
 
   // categories tab
   const [catTab, setCatTab]           = useState<'expense' | 'income'>('expense');
@@ -323,18 +368,40 @@ export default function SettingsPage({
               className={inputCls} />
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Wird im Dashboard als Begrüßung angezeigt.</p>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Anfangssaldo (€)</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-sm">€</span>
-              <input type="text" inputMode="decimal" value={balance} onChange={e => setBalance(e.target.value)}
-                placeholder="0,00"
-                className={`${inputCls} pl-7`} />
+          {/* Anfangssaldo — nach der ersten Buchung nur noch ausklappbar */}
+          {hasTransactions && !showStartBalance ? (
+            <button
+              type="button"
+              onClick={() => setShowStartBalance(true)}
+              className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+              Anfangssaldo anpassen ({formatEuro(settings.startingBalance)})
+            </button>
+          ) : (
+            <div className={hasTransactions ? 'slide-in-up' : undefined}>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Anfangssaldo (€)</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-sm">€</span>
+                <input type="text" inputMode="decimal" value={balance} onChange={e => setBalance(e.target.value)}
+                  placeholder="0,00"
+                  className={`${inputCls} pl-7`} />
+              </div>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                {hasTransactions
+                  ? <>Kontostand vor der ersten Buchung. Für spätere Korrekturen ist der Abgleich unten gedacht.</>
+                  : <>Kontostand vor der ersten erfassten Transaktion. Gespeichert: <strong>{formatEuro(settings.startingBalance)}</strong></>}
+              </p>
+              {hasTransactions && (
+                <button type="button" onClick={() => setShowStartBalance(false)}
+                  className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mt-1.5">
+                  Ausblenden
+                </button>
+              )}
             </div>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-              Kontostand vor der ersten erfassten Transaktion. Gespeichert: <strong>{formatEuro(settings.startingBalance)}</strong>
-            </p>
-          </div>
+          )}
           <div>
             <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Monatsbeginn (Tag)</label>
             <div className="flex items-center gap-3">
@@ -362,6 +429,84 @@ export default function SettingsPage({
           </div>
         </form>
       </Card>
+
+      {/* ── Kontostand abgleichen ────────────────────────────────────────── */}
+      {hasTransactions && (
+        <Card className="p-6">
+          <SectionLabel>Kontostand abgleichen</SectionLabel>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
+            Zähl dein Geld nach und trag den echten Stand ein. Die Differenz wird als
+            Korrekturbuchung ergänzt, damit alles wieder stimmt.
+          </p>
+
+          <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-700">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Berechnet</span>
+            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 tabular-nums">
+              {formatEuro(computedBalance)}
+            </span>
+          </div>
+
+          <div className="mt-4">
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+              Tatsächlicher Kontostand (€)
+            </label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 text-sm">€</span>
+              <input
+                type="text" inputMode="decimal"
+                value={countedInput}
+                onChange={e => { setCountedInput(e.target.value); setReconcileDone(null); }}
+                placeholder={formatEuro(computedBalance).replace(' €', '')}
+                className={`${inputCls} pl-7`}
+              />
+            </div>
+          </div>
+
+          {/* Live-Vorschau der Korrektur */}
+          {reconcileDiff !== null && (
+            <div className={`mt-3 text-xs rounded px-3 py-2 ${
+              reconcileDiff === 0
+                ? 'bg-gray-50 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400'
+                : 'bg-gray-50 dark:bg-gray-700/50 text-gray-600 dark:text-gray-300'
+            }`}>
+              {reconcileDiff === 0 ? (
+                <>Stimmt bereits — keine Korrektur nötig.</>
+              ) : (
+                <>
+                  Differenz{' '}
+                  <strong className={reconcileDiff > 0 ? '' : 'text-red-500 dark:text-red-400'}
+                    style={reconcileDiff > 0 ? { color: ACCENT } : undefined}>
+                    {reconcileDiff > 0 ? '+' : '−'} {formatEuro(Math.abs(reconcileDiff))}
+                  </strong>
+                  {' '}wird als {reconcileDiff > 0 ? 'Einnahme' : 'Ausgabe'} in der Kategorie „Korrektur" gebucht.
+                </>
+              )}
+            </div>
+          )}
+
+          {reconcileError && <p className="text-sm text-red-600 dark:text-red-400 mt-2">{reconcileError}</p>}
+          {reconcileDone !== null && (
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+              Abgeglichen — {reconcileDone > 0 ? '+' : '−'} {formatEuro(Math.abs(reconcileDone))} gebucht.
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={handleReconcile}
+            disabled={reconciling || reconcileDiff === null || reconcileDiff === 0}
+            className="mt-4 px-4 py-2 text-sm font-semibold text-white rounded disabled:opacity-40"
+            style={{ backgroundColor: ACCENT }}
+          >
+            {reconciling ? 'Wird gebucht…' : 'Abgleichen'}
+          </button>
+
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
+            Die Korrektur erscheint als normale Buchung im Verlauf — so bleibt nachvollziehbar,
+            wann angepasst wurde, und du kannst sie jederzeit wieder löschen.
+          </p>
+        </Card>
+      )}
 
       {/* ── Hauptbereich ─────────────────────────────────────────────────── */}
       {budgets.length > 1 && (

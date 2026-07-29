@@ -1,11 +1,20 @@
-import { useState, useEffect, type FormEvent } from 'react';
-import type { Budget } from '../types';
+import { useState, useEffect, useMemo, type FormEvent } from 'react';
+import {
+  BarChart, Bar, LineChart, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+} from 'recharts';
+import type { Budget, Transaction } from '../types';
 import { useBudget } from '../context/BudgetContext';
 import { useAuth } from '../context/AuthContext';
 import { createSupabaseAdapter } from '../lib/supabaseAdapter';
 import { createLocalStorageAdapter } from '../lib/localStorageAdapter';
 import Card from '../components/Card';
-import { formatEuro, ACCENT } from '../utils';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { formatEuro, ACCENT, getLast12Months, formatAxisEuro, CHART_EXPENSE } from '../utils';
+import { useChartTheme } from '../hooks/useChartTheme';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const euroFormatter = (value: any) => formatEuro(typeof value === 'number' ? value : 0);
 
 const PRESET_COLORS = [
   '#4A6FA5', '#2D6A4F', '#6B4C9A', '#C77D00', '#B5001B',
@@ -18,9 +27,20 @@ export default function BudgetsPage() {
     createBudget, updateBudget, deleteBudget,
   } = useBudget();
   const { user } = useAuth();
+  const ct = useChartTheme();
+  const tooltipStyle = {
+    fontSize: 12,
+    backgroundColor: ct.tooltipBg,
+    border: `1px solid ${ct.tooltipBorder}`,
+    borderRadius: 6,
+    color: ct.tooltipText,
+  };
 
   const [balances, setBalances] = useState<Record<string, number | null>>({});
   const [balancesLoading, setBalancesLoading] = useState(false);
+  // Rohdaten je Bereich — Grundlage für die Gesamtanalyse
+  const [txByBudget, setTxByBudget] = useState<Record<string, Transaction[]>>({});
+  const [startByBudget, setStartByBudget] = useState<Record<string, number>>({});
 
   useEffect(() => {
     if (!budgets.length) return;
@@ -35,15 +55,18 @@ export default function BudgetsPage() {
             adapter.getTransactions(),
             adapter.getSettings(),
           ]);
+          const start   = settings.startingBalance ?? 0;
           const income  = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
           const expense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-          return [b.id, (settings.startingBalance ?? 0) + income - expense] as const;
+          return { id: b.id, balance: start + income - expense as number | null, txs, start };
         } catch {
-          return [b.id, null] as const;
+          return { id: b.id, balance: null as number | null, txs: [] as Transaction[], start: 0 };
         }
       })
-    ).then(entries => {
-      setBalances(Object.fromEntries(entries));
+    ).then(results => {
+      setBalances(Object.fromEntries(results.map(r => [r.id, r.balance])));
+      setTxByBudget(Object.fromEntries(results.map(r => [r.id, r.txs])));
+      setStartByBudget(Object.fromEntries(results.map(r => [r.id, r.start])));
       setBalancesLoading(false);
     });
   }, [budgets, user]);
@@ -51,6 +74,44 @@ export default function BudgetsPage() {
   const knownBalances = Object.values(balances).filter((v): v is number => v !== null);
   const totalBalance  = knownBalances.reduce((s, v) => s + v, 0);
   const allLoaded     = !balancesLoading && knownBalances.length === budgets.length;
+
+  // ── Gesamtanalyse über alle Bereiche ───────────────────────────────────────
+  const months = useMemo(() => getLast12Months(), []);
+
+  /** Kontostand am Monatsende, kumulativ über alle Bereiche. */
+  const totalTimeline = useMemo(() => {
+    const allTx = Object.values(txByBudget).flat();
+    if (!allTx.length) return [];
+    const startSum = Object.values(startByBudget).reduce((s, v) => s + v, 0);
+    return months.map(({ year, month, label }) => {
+      const end = `${year}-${String(month).padStart(2, '0')}-31`;
+      const upto = allTx.filter(t => t.date <= end);
+      const income  = upto.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+      const expense = upto.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+      return { label, Gesamtguthaben: startSum + income - expense };
+    });
+  }, [txByBudget, startByBudget, months]);
+
+  /** Einnahmen/Ausgaben je Monat, über alle Bereiche summiert. */
+  const totalFlow = useMemo(() => {
+    const allTx = Object.values(txByBudget).flat();
+    if (!allTx.length) return [];
+    return months.map(({ year, month, label }) => {
+      const prefix = `${year}-${String(month).padStart(2, '0')}`;
+      const monthTx = allTx.filter(t => t.date.startsWith(prefix));
+      return {
+        label,
+        Einnahmen: monthTx.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0),
+        Ausgaben:  monthTx.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0),
+      };
+    });
+  }, [txByBudget, months]);
+
+  const hasAnalysisData = totalTimeline.length > 0;
+  const flowTotals = useMemo(() => ({
+    income:  totalFlow.reduce((s, m) => s + m.Einnahmen, 0),
+    expense: totalFlow.reduce((s, m) => s + m.Ausgaben, 0),
+  }), [totalFlow]);
 
   const [showForm, setShowForm] = useState(false);
   const [formName, setFormName] = useState('');
@@ -121,6 +182,80 @@ export default function BudgetsPage() {
             </div>
           )}
         </Card>
+      )}
+
+      {/* ── Gesamtanalyse über alle Bereiche ────────────────────────────── */}
+      {allLoaded && hasAnalysisData && (
+        <ErrorBoundary>
+          <Card className="p-4">
+            <div className="flex items-baseline justify-between gap-2 mb-1">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                Gesamtanalyse
+              </p>
+              <span className="text-xs text-gray-400 dark:text-gray-500">letzte 12 Monate</span>
+            </div>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
+              Alle Bereiche zusammengefasst
+            </p>
+
+            {/* Kontostandsverlauf */}
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Kontostandsverlauf</p>
+            <ResponsiveContainer width="100%" height={180}>
+              <LineChart data={totalTimeline}>
+                <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={formatAxisEuro} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  formatter={euroFormatter}
+                  contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }}
+                />
+                <Line type="monotone" dataKey="Gesamtguthaben" stroke={ACCENT} strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+
+            {/* Einnahmen vs. Ausgaben */}
+            <div className="flex items-baseline justify-between gap-2 mt-5 mb-2">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400">Einnahmen vs. Ausgaben</p>
+              <p className="text-xs tabular-nums text-gray-400 dark:text-gray-500">
+                <span style={{ color: ACCENT }}>+{formatEuro(flowTotals.income)}</span>
+                {' · '}
+                <span>−{formatEuro(flowTotals.expense)}</span>
+              </p>
+            </div>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={totalFlow} barGap={2} barCategoryGap="30%">
+                <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={formatAxisEuro} tick={{ fontSize: 10, fill: ct.tick }} axisLine={false} tickLine={false} />
+                <Tooltip
+                  formatter={euroFormatter}
+                  contentStyle={tooltipStyle} labelStyle={{ color: ct.tooltipText }}
+                  cursor={{ fill: ct.cursorFill, fillOpacity: 0.18, stroke: ct.cursorFill, strokeWidth: 1, radius: 4 }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12, color: ct.tick }} />
+                <Bar dataKey="Einnahmen" fill={ACCENT} radius={[2, 2, 0, 0]} />
+                <Bar dataKey="Ausgaben" fill={CHART_EXPENSE} radius={[2, 2, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+
+            {/* Anteil je Bereich */}
+            {budgets.length > 1 && totalBalance !== 0 && (
+              <div className="mt-5 pt-4 border-t border-gray-100 dark:border-gray-700">
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Anteil am Gesamtguthaben</p>
+                <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700">
+                  {budgets.map(b => {
+                    const bal = balances[b.id] ?? 0;
+                    if (bal <= 0) return null;
+                    return (
+                      <div key={b.id} title={`${b.name}: ${formatEuro(bal)}`}
+                        style={{ width: `${(bal / Math.max(1, totalBalance)) * 100}%`, backgroundColor: b.color }} />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </Card>
+        </ErrorBoundary>
       )}
 
 
