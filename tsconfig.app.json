@@ -21,5 +21,8 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  /* Tests haben eine eigene Konfiguration (tsconfig.test.json):
+     der App-Code soll Node-Globals wie process gar nicht erst sehen. */
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

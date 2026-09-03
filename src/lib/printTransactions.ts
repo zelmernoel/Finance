@@ -1,5 +1,5 @@
 import type { Transaction } from '../types';
-import { formatEuro } from '../utils';
+import { formatEuro, todayISO } from '../utils';
 
 function fmtDate(iso: string): string {
   const [y, m, d] = iso.split('-');
@@ -47,7 +47,7 @@ export function printTransactions(
 </head>
 <body>
 <h1>Finance – ${budgetName}</h1>
-<p class="meta">Erstellt am ${fmtDate(new Date().toISOString().slice(0, 10))}${userName ? ' · ' + userName : ''}</p>
+<p class="meta">Erstellt am ${fmtDate(todayISO())}${userName ? ' · ' + userName : ''}</p>
 <div class="summary">
   <span><strong>${formatEuro(income)}</strong>Einnahmen</span>
   <span><strong>${formatEuro(expense)}</strong>Ausgaben</span>

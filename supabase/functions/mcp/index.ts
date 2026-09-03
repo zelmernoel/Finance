@@ -153,9 +153,18 @@ function money(n: number) {
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
-// ── Datumslogik (deckungsgleich mit src/utils.ts) ───────────
+// ── Datumslogik ─────────────────────────────────────────────
+//
+// Zweitimplementierung von getMonthRange()/getCustomMonthRange()
+// aus src/utils.ts. Deno kann diese Datei nicht importieren (der
+// Supabase-CLI bündelt nur aus supabase/functions/, und src/utils.ts
+// zieht Browser-APIs nach), deshalb steht die Rechnung zweimal da.
+// Wer hier etwas ändert, muss es dort nachziehen — und umgekehrt.
+//
 // Gerechnet wird durchgehend in UTC, damit das Ergebnis nicht von
-// der Zeitzone des Servers abhängt.
+// der Zeitzone des Servers abhängt. Für getMonthRange() ist das
+// deckungsgleich mit dem Frontend: die Funktion bekommt Jahr und
+// Monat übergeben und rechnet nur Kalendertage, keine Zeitzonen.
 
 function isoUTC(d: Date): string {
   return `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
@@ -176,12 +185,17 @@ function getMonthRange(year: number, month: number, monthStart = 1): { from: str
  * Laufender Abrechnungszeitraum.
  * Entspricht getCustomMonthRange() aus src/utils.ts.
  *
- * Abweichung, bewusst: das Frontend bildet das Enddatum in
- * getCustomMonthRange über toISOString() auf einem lokal
- * konstruierten Date. In Zeitzonen östlich von UTC (also auch in
- * Deutschland) liegt das Enddatum dort einen Tag zu früh. Hier wird
- * dieselbe Semantik verwendet wie in getMonthRange() — also der
- * korrekte letzte Tag des Zeitraums.
+ * Verbleibender Unterschied zum Frontend, unvermeidbar: welcher Tag
+ * "heute" ist. Das Frontend nimmt den lokalen Tag des Nutzers, hier
+ * gibt es nur UTC — die Zeitzone des Nutzers ist dem Server nicht
+ * bekannt. In Europe/Berlin fallen die beiden deshalb zwischen
+ * 00:00 und 01:00 bzw. 02:00 Ortszeit auseinander: dort ist es nach
+ * UTC noch der Vortag. Trifft dieser Moment genau auf den
+ * monthStart-Tag, meldet der Server noch den vorherigen Zeitraum.
+ *
+ * Für monthStart = 1 und zu jeder anderen Tageszeit sind beide
+ * deckungsgleich. Wer das vollständig ausschliessen will, müsste
+ * from/to explizit an die Tools übergeben, statt sie hier zu raten.
  */
 function getCustomMonthRange(monthStart = 1, now = new Date()): { from: string; to: string } {
   const y = now.getUTCFullYear();

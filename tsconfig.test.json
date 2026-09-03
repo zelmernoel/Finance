@@ -1,0 +1,28 @@
+{
+  /* Tests laufen unter Node (node --test), nicht im Browser.
+     Deshalb Node-Typen statt vite/client — und deshalb getrennt von
+     tsconfig.app.json, damit der App-Code keine Node-Globals sieht.
+     Wird von `tsc -b` mitgeprüft: ein Tippfehler im Test bricht den Build. */
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.test.tsbuildinfo",
+    "target": "es2023",
+    /* DOM, weil die Tests App-Module importieren, die document nutzen
+       (utils.ts: downloadCSV). Die Tests selbst fassen kein DOM an. */
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "types": ["node"],
+    "skipLibCheck": true,
+
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+}

@@ -1,7 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import type { Transaction } from '../types';
-import { formatEuro } from '../utils';
+import { formatEuro, todayISO } from '../utils';
 
 export interface ActiveFilters {
   dateFrom?: string;
@@ -32,7 +32,7 @@ export function exportTransactionsPDF(
   doc.setTextColor(120);
   doc.text(`Budget: ${budgetName}`, 14, 28);
   if (userName) doc.text(`Nutzer: ${userName}`, 14, 34);
-  doc.text(`Erstellt am: ${fmtDate(new Date().toISOString().slice(0, 10))}`, 14, userName ? 40 : 34);
+  doc.text(`Erstellt am: ${fmtDate(todayISO())}`, 14, userName ? 40 : 34);
 
   let yOffset = userName ? 48 : 42;
   if (filters.dateFrom || filters.dateTo) {
@@ -72,5 +72,5 @@ export function exportTransactionsPDF(
     columnStyles: { 4: { halign: 'right' } },
   });
 
-  doc.save(`Finance_${budgetName}_${new Date().toISOString().slice(0, 10)}.pdf`);
+  doc.save(`Finance_${budgetName}_${todayISO()}.pdf`);
 }

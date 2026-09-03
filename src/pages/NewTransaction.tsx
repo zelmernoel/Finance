@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { Category, Transaction, Frequency } from '../types';
 import type { StorageAdapter } from '../lib/storage';
 import Card from '../components/Card';
-import { ACCENT } from '../utils';
+import { ACCENT, todayISO } from '../utils';
 import { calcNextDue } from '../hooks/useRecurringTransactions';
 import { saveReceipt, fileToDataUrl } from '../lib/receiptStorage';
 
@@ -27,7 +27,7 @@ const inputCls = 'w-full border border-gray-200 dark:border-gray-600 rounded px-
 const labelCls = 'block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2';
 
 export default function NewTransaction({ categories, onSubmit, onAddCategory, onSuccess, storage, budgetId }: Props) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const [type, setType]           = useState<'income' | 'expense'>('expense');
   const [date, setDate]           = useState(today);
   const [amount, setAmount]       = useState('');

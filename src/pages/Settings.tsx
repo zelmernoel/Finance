@@ -3,7 +3,7 @@ import { useRef, useState, type FormEvent, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { Category, Settings, Transaction } from '../types';
 import Card from '../components/Card';
-import { ACCENT, formatEuro, downloadCSV, downloadJSON, parseImportCSV, computeBalance } from '../utils';
+import { ACCENT, formatEuro, downloadCSV, downloadJSON, parseImportCSV, computeBalance, todayISO } from '../utils';
 import { exportTransactionsPDF } from '../lib/exportPDF';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, ACCENT_PRESETS, PALETTES, LOOKS, ANALYSIS_SECTIONS, palettePinnedTheme } from '../hooks/useTheme';
@@ -395,7 +395,7 @@ export default function SettingsPage({
   function handleExportJSON() {
     downloadJSON(
       { transactions, categories, settings, exportedAt: new Date().toISOString() },
-      `finance_backup_${new Date().toISOString().slice(0, 10)}.json`
+      `finance_backup_${todayISO()}.json`
     );
   }
 

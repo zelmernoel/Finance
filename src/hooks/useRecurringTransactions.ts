@@ -1,26 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StorageAdapter } from '../lib/storage';
 import type { Transaction, Frequency } from '../types';
+import { addDays, addMonths, addYears, todayISO } from '../utils';
 
-// ── Date helpers ──────────────────────────────────────────────────────────────
-
-function addDays(iso: string, n: number): string {
-  const d = new Date(iso);
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-
-function addMonths(iso: string, n: number): string {
-  const d = new Date(iso);
-  d.setMonth(d.getMonth() + n);
-  return d.toISOString().slice(0, 10);
-}
-
-function addYears(iso: string, n: number): string {
-  const d = new Date(iso);
-  d.setFullYear(d.getFullYear() + n);
-  return d.toISOString().slice(0, 10);
-}
+// ── Nächste Fälligkeit ────────────────────────────────────────────────────────
+//
+// Die Datumsarithmetik liegt in src/utils.ts, damit sie im Frontend nur einmal
+// existiert. Sie rechnet auf UTC-Mitternacht und klemmt den Monatsüberlauf —
+// beides ist hier zwingend: eine Fälligkeit, die stehenbleibt, lässt die App
+// bei jedem Start erneut buchen. Siehe src/utils.dates.test.ts.
 
 export function calcNextDue(current: string, frequency: Frequency): string {
   switch (frequency) {
@@ -56,7 +44,7 @@ export function useRecurringTransactions(
     setProcessing(true);
 
     try {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayISO();
       const recurring = await storage.getRecurring();
       const due = recurring.filter(r => r.isActive && r.nextDue <= today);
       if (due.length === 0) return;

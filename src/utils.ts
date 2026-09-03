@@ -34,40 +34,141 @@ export function getCurrentMonth(): { year: number; month: number } {
   return { year: now.getFullYear(), month: now.getMonth() + 1 };
 }
 
-/** Returns the ISO date range for the current billing period given a custom month start day. */
+// ── Kalenderdaten ─────────────────────────────────────────────────────────────
+//
+// Ein Datum wie "2026-03-15" ist ein reines Kalenderdatum ohne Uhrzeit. Eine
+// Zeitzone hat darin nichts verloren — deshalb wird hier durchgehend auf
+// UTC-Mitternacht gerechnet und in UTC ausgelesen. UTC kennt keine Sommerzeit,
+// also gibt es auch keine Sprünge.
+//
+// Zwei Fallen, die genau hier schon zugeschlagen haben:
+//
+//   1. toISOString() auf einem LOKAL gebauten Date. `new Date(2026, 2, 14)` ist
+//      in Berlin 2026-03-14T00:00+01:00, also 2026-03-13T23:00Z — daraus wird
+//      "2026-03-13", ein Tag zu früh.
+//   2. Lokale Getter/Setter auf einem UTC-Datum. Fällt die lokale Uhrzeit auf
+//      den Sommerzeitsprung, verschiebt setDate() um eine Stunde statt um einen
+//      Tag: addDays('2026-03-29', +1) ergab wieder 2026-03-29. Ein Dauerauftrag
+//      auf diesem Datum rückte nie vor und buchte bei jedem App-Start erneut.
+//
+// Regel: Konstruktion mit Date.UTC(), Auslesen mit getUTC*(), formatieren mit
+// toISODate(). Niemals mischen.
+//
+// Zweitimplementierung: getMonthRange()/getCustomMonthRange() stehen auch in
+// supabase/functions/mcp/index.ts (Deno, kann diese Datei nicht importieren).
+// Wer hier etwas ändert, muss sie dort nachziehen.
+//
+// ── Zwei Formatierer, und warum ──────────────────────────────────────────────
+//
+// toISODate(d)  liest in UTC.    Für KALENDERDATEN, die mit Date.UTC() gebaut
+//                                wurden — also alles aus addDays/addMonths/
+//                                getMonthRange. Dort steckt keine Uhrzeit drin,
+//                                UTC ist nur der Träger.
+//
+// todayISO()    liest LOKAL.     Für den Zeitpunkt JETZT. Welcher Tag gerade
+//                                ist, ist eine Frage der Ortszeit des Nutzers,
+//                                nicht der von Greenwich.
+//
+// Die beiden nicht verwechseln. toISODate(new Date()) wäre falsch: es liefert
+// den UTC-Tag, und der ist in Berlin zwischen Mitternacht und 01:00 bzw. 02:00
+// noch der gestrige. Genau das stand vorher an neun Stellen als
+// `new Date().toISOString().slice(0, 10)` und liess Formulare nachts das
+// gestrige Datum vorschlagen.
+
+/**
+ * "YYYY-MM-DD" aus einem Date, in UTC ausgelesen.
+ * Für Kalenderdaten aus der UTC-Arithmetik — nicht für "jetzt", dafür todayISO().
+ */
+function toISODate(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Der heutige Tag als "YYYY-MM-DD" — in der ORTSZEIT des Nutzers.
+ *
+ * Bewusst nicht über toISOString(): das rechnet nach UTC um und liefert
+ * östlich von Greenwich kurz nach Mitternacht noch den Vortag, westlich davon
+ * am späten Abend schon den Folgetag.
+ */
+export function todayISO(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+/** "YYYY-MM-DD" → Date auf UTC-Mitternacht. */
+function parseISODate(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+/** Letzter Tag eines Monats (1-basiert), über den Rollover des Folgemonats. */
+function lastDayOfMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/** n Tage addieren (n darf negativ sein). */
+export function addDays(iso: string, n: number): string {
+  const d = parseISODate(iso);
+  d.setUTCDate(d.getUTCDate() + n);
+  return toISODate(d);
+}
+
+/**
+ * n Monate addieren (n darf negativ sein). Der Tag wird auf das Monatsende
+ * geklemmt, statt in den Folgemonat überzulaufen:
+ * 31.01. + 1 Monat ergibt den 28.02. (im Schaltjahr den 29.), nicht den 03.03.
+ *
+ * Ohne das Klemmen wandert ein Dauerauftrag vom Monatsende Schritt für Schritt
+ * in den Folgemonat und verliert seinen Termin.
+ */
+export function addMonths(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const total     = y * 12 + (m - 1) + n;
+  const year      = Math.floor(total / 12);
+  const month     = (total % 12 + 12) % 12 + 1;  // 1-basiert, auch bei negativem n
+  const day       = Math.min(d, lastDayOfMonth(year, month));
+  return toISODate(new Date(Date.UTC(year, month - 1, day)));
+}
+
+/** n Jahre addieren. Über addMonths, damit der 29.02. genauso geklemmt wird. */
+export function addYears(iso: string, n: number): string {
+  return addMonths(iso, n * 12);
+}
+
+/**
+ * Zeitraum eines bestimmten Abrechnungsmonats: vom `monthStart`. des Monats
+ * bis zum Tag vor dem `monthStart`. des Folgemonats.
+ *
+ * Die einzige Stelle, die den Zeitraum wirklich ausrechnet —
+ * getCustomMonthRange() setzt nur den passenden Monat davor.
+ */
+export function getMonthRange(year: number, month: number, monthStart: number = 1): { from: string; to: string } {
+  const from = `${year}-${String(month).padStart(2, '0')}-${String(monthStart).padStart(2, '0')}`;
+  const nextStart = new Date(Date.UTC(year, month, monthStart)); // month ist 1-basiert → Folgemonat
+  nextStart.setUTCDate(nextStart.getUTCDate() - 1);
+  return { from, to: toISODate(nextStart) };
+}
+
+/**
+ * Laufender Abrechnungszeitraum. Liegt der heutige Tag noch vor `monthStart`,
+ * hat der Zeitraum im Vormonat begonnen.
+ *
+ * "Heute" ist bewusst der lokale Tag des Nutzers — die Oberfläche soll den
+ * Zeitraum zeigen, in dem sich die Person gerade befindet.
+ */
 export function getCustomMonthRange(monthStart: number = 1): { from: string; to: string } {
   const today = new Date();
-  const day   = today.getDate();
   let fromYear  = today.getFullYear();
   let fromMonth = today.getMonth() + 1; // 1-based
 
-  if (day < monthStart) {
-    // Haven't reached start day yet → period began last month
+  if (today.getDate() < monthStart) {
+    // Startet erst noch → der laufende Zeitraum begann im Vormonat
     const prev = new Date(today.getFullYear(), today.getMonth() - 1, 1);
     fromYear  = prev.getFullYear();
     fromMonth = prev.getMonth() + 1;
   }
 
-  const from = `${fromYear}-${String(fromMonth).padStart(2, '0')}-${String(monthStart).padStart(2, '0')}`;
-
-  // End: one day before the next period's start
-  const nextStart = new Date(fromYear, fromMonth - 1 + 1, monthStart);
-  nextStart.setDate(nextStart.getDate() - 1);
-  const to = nextStart.toISOString().slice(0, 10);
-
-  return { from, to };
-}
-
-/**
- * Zeitraum eines bestimmten Abrechnungsmonats — dieselbe Logik wie
- * getCustomMonthRange, aber für ein frei gewähltes Jahr/Monat-Paar.
- */
-export function getMonthRange(year: number, month: number, monthStart: number = 1): { from: string; to: string } {
-  const from = `${year}-${String(month).padStart(2, '0')}-${String(monthStart).padStart(2, '0')}`;
-  const nextStart = new Date(year, month, monthStart); // month ist 1-basiert → nächster Monat
-  nextStart.setDate(nextStart.getDate() - 1);
-  const to = `${nextStart.getFullYear()}-${String(nextStart.getMonth() + 1).padStart(2, '0')}-${String(nextStart.getDate()).padStart(2, '0')}`;
-  return { from, to };
+  return getMonthRange(fromYear, fromMonth, monthStart);
 }
 
 export function isSameMonth(isoDate: string, year: number, month: number): boolean {
@@ -141,7 +242,7 @@ export function downloadCSV(transactions: Transaction[]): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `transaktionen_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `transaktionen_${todayISO()}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

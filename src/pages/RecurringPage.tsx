@@ -3,7 +3,7 @@ import type { RecurringTransaction, Category, Frequency } from '../types';
 import type { StorageAdapter } from '../lib/storage';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
-import { formatEuro, formatDate, ACCENT } from '../utils';
+import { formatEuro, formatDate, ACCENT, todayISO } from '../utils';
 import { calcNextDue } from '../hooks/useRecurringTransactions';
 
 const FREQ_LABELS: Record<Frequency, string> = {
@@ -32,7 +32,7 @@ export default function RecurringPage({ storage, categories, budgetId, onNavigat
 
   useEffect(() => { load(); }, [load]);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
   return (
     <div className="space-y-5">
@@ -152,7 +152,7 @@ function RecurringForm({
   onSave: (r: RecurringTransaction) => Promise<void>;
   onCancel: () => void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const [type, setType]         = useState<'expense' | 'income'>('expense');
   const [amount, setAmount]     = useState('');
   const [category, setCategory] = useState('');
