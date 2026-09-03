@@ -2,6 +2,8 @@
   "rewrites": [
     { "source": "/mcp", "destination": "https://yctzuacwsaoxkkgxgsjq.supabase.co/functions/v1/mcp" },
     { "source": "/mcp/(.*)", "destination": "https://yctzuacwsaoxkkgxgsjq.supabase.co/functions/v1/mcp/$1" },
+    { "source": "/authorize", "destination": "https://yctzuacwsaoxkkgxgsjq.supabase.co/auth/v1/oauth/authorize" },
+    { "source": "/token", "destination": "https://yctzuacwsaoxkkgxgsjq.supabase.co/auth/v1/oauth/token" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
