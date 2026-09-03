@@ -105,6 +105,24 @@ Dashboard → **SQL Editor** → `supabase/mcp-verify.sql` → **Run**.
 Ergebnis ist eine Tabelle. **Jede Zeile mit `>>> BEFUND <<<` ist ein Problem.**
 Die letzte Abfrage zeigt die Anzahl; erwartet ist `befunde = 0`.
 
+**Die Datei schreibt nichts fest.** Sie läuft komplett zwischen `BEGIN` und
+`ROLLBACK`; am Ende wird immer zurückgerollt, auch wenn alles besteht. Die
+beiden Probeschreibungen (je eine Zeile in `mcp_clients` und `activity_log`)
+sind damit folgenlos.
+
+Supabase warnt beim Einfügen zweimal, beides ist erwartbar:
+
+- **„destructive operation"** — durch `DROP`/`DELETE`/`UPDATE` weiter unten.
+  Alle wirken nur auf die eigenen Probezeilen; `transactions`, `settings` und
+  `budgets` werden nirgends beschrieben.
+- **„Tabelle `mcp_check` ohne Row Level Security"** — Fehlalarm. `mcp_check`
+  ist eine TEMP-Tabelle im sitzungsprivaten Schema `pg_temp` und für `anon`
+  wie `authenticated` grundsätzlich unerreichbar. Sie enthält nur
+  Prüfergebnisse.
+
+Den Bestätigungsdialog also durchlaufen lassen. (Bricht man ab, ist ebenfalls
+nichts passiert.)
+
 Diese Datei ist bewusst von der Migration getrennt: sie wechselt Rollen und
 simuliert Tokens. Ein Fehlschlag hier soll eine korrekte Migration nicht
 zurückrollen.
@@ -115,7 +133,9 @@ auch für den Eigentümer einer `SECURITY DEFINER`-Funktion — ohne die
 ausdrückliche Policy `TO mcp_fn_owner` läse die Funktion null Zeilen, ohne
 Fehler, und jeder Widerruf wäre wirkungslos.
 
-Prüfung 9, 10 und 13 erwarten ausdrücklich, dass etwas **nicht** geht.
+Prüfung 10, 13 und 20 erwarten ausdrücklich, dass etwas **nicht** geht. Die
+Nummern 9 und 18 fehlen bewusst — die beiden Prüfungen waren redundant zu 20
+und im Fehlerfall irreführend; die Begründung steht im Kopf der SQL-Datei.
 
 ---
 
@@ -141,11 +161,14 @@ Dashboard → **Authentication → OAuth Server** → aktivieren.
 Consent-/Authorization-Page-URL:
 
 ```
-https://<DEINE-NETLIFY-DOMAIN>/oauth/consent
+https://financenoel.vercel.app/oauth/consent
 ```
 
-Unter **Authentication → URL Configuration** die Netlify-Domain als *Site URL*
+Unter **Authentication → URL Configuration** dieselbe Domain als *Site URL*
 eintragen.
+
+> Seit dem Umzug von Netlify auf Vercel ist das `financenoel.vercel.app`. Die
+> alte `netlify.app`-Domain taucht im Code nirgends mehr auf.
 
 > Der OAuth-2.1-Server ist bei Supabase in Public Beta. Ist er für dein Projekt
 > nicht freigeschaltet, schlägt `getAuthorizationDetails()` auf der

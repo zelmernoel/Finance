@@ -1,7 +1,20 @@
 # SYSTEM-REPORT — Finance
 
-Stand: 2026-09-02 · Branch `main` · letzter Commit `88be12e`
-Analysegrundlage: Repository-Inhalt (keine Live-Datenbank abgefragt).
+> **Aktualisiert:** 2026-09-03
+> **Bezugspunkt:** Commit `e9e3c83` auf `main`
+> **Zuvor:** erste Fassung vom 2026-09-02 auf Commit `88be12e`
+>
+> **Dieser Report ist eine Momentaufnahme.** Bei jeder Abweichung zwischen
+> diesem Dokument und dem Code gilt der Code. Das ist keine Floskel: die
+> erste Fassung beschrieb `settings.month_start` als fehlend, obwohl die
+> Spalte zu dem Zeitpunkt bereits in `supabase/mcp-schema.sql` angelegt
+> war — und diese veraltete Angabe hat später zu einer falschen Annahme
+> geführt. Wer hier etwas Sicherheitsrelevantes nachschlägt, prüft es
+> gegen die Datei oder die Datenbank nach.
+>
+> **Zeilenangaben** (`datei.ts:42`) beziehen sich auf den Stand von
+> `e9e3c83` und verschieben sich mit jeder Änderung. Der Dateiname ist
+> verlässlich, die Zeilennummer nur als Wegweiser gemeint.
 
 ---
 
@@ -62,7 +75,7 @@ Analysegrundlage: Repository-Inhalt (keine Live-Datenbank abgefragt).
 - **Package-Manager:** npm — `package-lock.json` mit `lockfileVersion: 3` ist vorhanden; kein `yarn.lock`, kein `pnpm-lock.yaml`.
 - **Build-Tool:** Vite 8 (`vite.config.ts`) mit den Plugins `@vitejs/plugin-react` und `@tailwindcss/vite`. Build läuft zuerst durch `tsc -b` (Project References: `tsconfig.app.json` für `src`, `tsconfig.node.json`).
 - **TypeScript-Konfiguration (`tsconfig.app.json`):** target `es2023`, lib `ES2023`+`DOM`, module `esnext`, `moduleResolution: bundler`, `jsx: react-jsx`, `noEmit: true`, `verbatimModuleSyntax`, `erasableSyntaxOnly`, `noUnusedLocals`, `noUnusedParameters`, `noFallthroughCasesInSwitch`, `types: ["vite/client"]`.
-- **Deploy-Ziel:** **Netlify** (`netlify.toml`):
+- **Deploy-Ziel:** **Vercel** (`vercel.json`). Bis zum Umzug lief das Projekt auf Netlify; `netlify.toml` liegt weiterhin im Repo, ist aber mit einem Kommentar als ausser Betrieb markiert und wird von Vercel ignoriert. Historisch (Netlify):
   ```toml
   [build]
     command = "npm run build"
@@ -75,12 +88,26 @@ Analysegrundlage: Repository-Inhalt (keine Live-Datenbank abgefragt).
   ```
   SPA-Fallback-Redirect ist gesetzt. Der `dist/`-Ordner ist gitignored, existiert aber lokal.
 - **Dev-Server:** `.claude/launch.json` definiert „Finance (Vite Dev)" auf Port **5173** und „Finance (Preview Build)" auf Port **4173**.
-- **Backend:** Supabase (PostgreSQL + Auth + Row Level Security + Realtime). Keine eigene Server-/API-Schicht, kein Edge-Function-Verzeichnis, keine `supabase/config.toml`, kein `supabase/migrations/`-Ordner — nur lose `.sql`-Dateien, die manuell im SQL-Editor auszuführen sind.
+- **Aktive Vercel-Konfiguration** (`vercel.json`): vier Rewrites vor der SPA-Catchall — `/mcp` und `/mcp/(.*)` als Proxy auf die Supabase Edge Function, `/authorize` und `/token` auf die OAuth-Endpunkte von Supabase Auth. Reihenfolge ist wesentlich: die Catchall `/(.*)` → `/index.html` steht zuletzt, sonst würde sie alles abfangen.
+- **Backend:** Supabase (PostgreSQL + Auth + Row Level Security + Realtime) — **plus eine Edge Function** unter `supabase/functions/mcp/` (MCP-Server, Deno). `supabase/config.toml` existiert inzwischen (setzt `verify_jwt = false` für diese Function). Weiterhin **kein** `supabase/migrations/`-Ordner und keine Migrationsverwaltung — nur lose `.sql`-Dateien, die manuell im SQL-Editor auszuführen sind.
 - **Alt-Artefakt:** `db.json` im Root ist ein `json-server`-Schema (`"$schema": "./node_modules/json-server/schema.json"`) aus einer früheren Entwicklungsstufe. `json-server` ist **nicht** mehr in `package.json` enthalten; die Datei ist gitignored und wird von keinem Code gelesen.
 
 ---
 
 ## 2) DATENBANK-SCHEMA
+
+> **Wichtig für alles, was jetzt folgt:** Die in 2.1 bis 2.8 gezeigten
+> RLS-Policies beschreiben den Stand **vor** der MCP-Migration. Sie sind
+> nicht mehr aktuell.
+>
+> `supabase/mcp-schema.sql` hat inzwischen jede der sieben `FOR ALL`-Policies
+> durch **vier getrennte** Policies ersetzt (SELECT / INSERT / UPDATE / DELETE)
+> und dabei `auth.uid()` durch `public.jwt_user_id()` getauscht. Der Grund für
+> beides steht in 2.12. Der verbindliche Stand steht in `mcp-schema.sql`,
+> Abschnitt 8, sowie in der Prüfliste am Ende jener Datei.
+>
+> Die Tabellendefinitionen (Spalten, Typen, Constraints, Indizes) unten stimmen
+> weiterhin — ergänzt um die in 2.12 genannten neuen Spalten.
 
 Quellen im Repo:
 
@@ -204,7 +231,9 @@ Es existiert **kein** DELETE-Trigger auf `transactions`; das Zurückbuchen beim 
 
 - In **allen** SQL-Dateien heißt die Spalte **`category`** (Typ `TEXT`, `NOT NULL DEFAULT ''`) — sowohl in `transactions` als auch in `recurring_transactions`. Eine Spalte `category_id` existiert im Schema **nirgends**.
 - Der **aktive** Datenzugriffspfad (`src/lib/supabaseAdapter.ts`) verwendet durchgängig `category`.
-- **`src/api.ts` verwendet dagegen `category_id`** — an drei Stellen:
+- **Erledigt seit Commit `724faf4`:** Die einzige Stelle, die je `category_id` verwendete, war `src/api.ts`. Diese Datei ist gelöscht. Der folgende Absatz beschreibt den historischen Zustand und ist nur noch als Hintergrund zu lesen:
+
+- **`src/api.ts` verwendete `category_id`** — an drei Stellen:
 
   ```
   src/api.ts:24      category:    String(row.category_id ?? ''),
@@ -212,7 +241,7 @@ Es existiert **kein** DELETE-Trigger auf `transactions`; das Zurückbuchen beim 
   src/api.ts:103     category_id: t.category,
   ```
 
-  `src/api.ts` ist **toter Code**: `grep -rn "from '.*api'" src/` liefert keinen Treffer, die Datei wird von keiner anderen Datei importiert. Sie ist zusätzlich veraltet, weil sie `budget_id` gar nicht kennt und in `createDefaultSettings` / `updateSettings` mit `onConflict: 'user_id'` arbeitet — dieses Unique-Constraint existiert seit Schema v2 nicht mehr (siehe 2.5).
+  Die Datei war **toter Code** — von keiner anderen Datei importiert — und zusätzlich veraltet, weil sie `budget_id` gar nicht kannte und in `createDefaultSettings` / `updateSettings` mit `onConflict: 'user_id'` arbeitete; dieses Unique-Constraint existiert seit Schema v2 nicht mehr (siehe 2.5).
 
 - **Semantik von `category`:** Die Spalte enthält den **Kategorie-Namen als Freitext**, nicht die Kategorie-ID. Belege:
   - `src/pages/NewTransaction.tsx` — `catOptions` wird aus `categories.filter(...).map(c => c.name)` gebildet, der Formularwert `category` ist dieser Name.
@@ -221,7 +250,7 @@ Es existiert **kein** DELETE-Trigger auf `transactions`; das Zurückbuchen beim 
   - `src/pages/Settings.tsx` bucht Abgleichs-Korrekturen mit `category: 'Korrektur'` — ein Name, der in `categories` gar nicht angelegt sein muss.
   - Es gibt **keinen Foreign Key** von `transactions.category` auf `categories`.
 
-**Fazit:** Die Inkonsistenz ist heute nur noch in der ungenutzten Datei `src/api.ts` vorhanden. Der produktive Pfad ist konsistent auf `category` (Name als Text).
+**Fazit (Stand `e9e3c83`):** Die Inkonsistenz ist **vollständig beseitigt**. `src/api.ts` wurde in Commit `724faf4` gelöscht, nachdem geprüft war, dass keine Import-Anweisung im Repo darauf zeigt und keiner der zehn exportierten Namen ausserhalb der Datei importiert wird. Es gibt im gesamten Code keine Erwähnung von `category_id` mehr. Der Zugriffspfad ist durchgehend `category` (Kategoriename als Freitext).
 
 ---
 
@@ -268,7 +297,6 @@ CREATE POLICY "Eigene Kategorien" ON categories
 |---|---|
 | `supabaseAdapter.ts:140-150` (`initializeNewUser`) | `cat-exp-1-${userId}` … `cat-inc-4-${userId}` |
 | `supabaseAdapter.ts:248` (`getCategories`-Seeding) | `cat-${type.slice(0,3)}-${i+1}-${userId.slice(0,6)}` |
-| `api.ts:163` (toter Code) | `cat-${type.slice(0,3)}-${i+1}-${userId.slice(0,8)}` |
 | `MainApp.tsx:145` (neue Kategorie durch Nutzer) | `uuidv4()` |
 | `localStorageAdapter.ts:33-45` (Gastmodus) | `cat-exp-1` … `cat-inc-4` (ohne Suffix) |
 
@@ -309,10 +337,26 @@ CREATE POLICY "Eigene Settings" ON settings
 
 - **Trigger:** keine
 
-> **Fehlende Spalte `month_start`:** Der Code liest und schreibt `settings.month_start`:
+> **`month_start` — inzwischen angelegt und ausgeführt.** In der ersten Fassung dieses Reports stand hier, die Spalte fehle in allen Migrationen. Das stimmte für die damals betrachteten Dateien, war aber schon zum Zeitpunkt der Analyse überholt.
+>
+> **Heutiger Stand:** Die Spalte existiert in der Produktivdatenbank als
+> `month_start integer NOT NULL DEFAULT 1` mit `CHECK (month_start >= 1 AND month_start <= 28)`.
+> Angelegt wird sie von **zwei** Dateien, beide idempotent und mit demselben
+> Constraint-Namen `settings_month_start_check`, sie stören sich also nicht:
+>
+> - `supabase/mcp-schema.sql` (Abschnitt 2) — dort als Beifang der MCP-Migration
+> - `supabase/settings-month-start.sql` (Commit `6124cea`) — die eigenständige
+>   Migration, die zusätzlich `DEFAULT 1` setzt, bestehende `NULL`-Werte auffüllt
+>   und die Spalte auf `NOT NULL` zieht
+>
+> Der Grund für die zweite Datei: `month_start` ist Kernfunktion der App und hat
+> mit dem MCP-Zugriff nichts zu tun. Wer die Datenbank ohne den MCP-Teil aufsetzt,
+> bekäme sonst eine App, die auf eine fehlende Spalte schreibt.
+>
+> Historischer Hintergrund — der Code las und schrieb die Spalte schon vorher:
 > ```
-> src/lib/supabaseAdapter.ts:39    monthStart: row.month_start != null ? toNum(row.month_start) : undefined,
-> src/lib/supabaseAdapter.ts:310   if (patch.monthStart !== undefined) dbPatch.month_start = patch.monthStart;
+> src/lib/supabaseAdapter.ts:40    monthStart: row.month_start != null ? toNum(row.month_start) : undefined,
+> src/lib/supabaseAdapter.ts:316   if (patch.monthStart !== undefined) dbPatch.month_start = patch.monthStart;
 > ```
 > In **keiner** `.sql`-Datei des Repos wird diese Spalte angelegt. Entweder existiert sie nur in der Live-Datenbank (manuell hinzugefügt, Migration fehlt im Repo) — oder jedes `updateSettings({ monthStart })` schlägt fehl. Siehe Abschnitt 7.
 
@@ -604,12 +648,70 @@ Am Ende von `schema.sql` steht ein vollständig auskommentierter Migrationsblock
 
 ---
 
+### 2.12 Seit dem MCP-Ausbau hinzugekommen
+
+Nicht in 2.1–2.11 beschrieben, weil zum Zeitpunkt der ersten Fassung noch nicht
+vorhanden. Alles aus `supabase/mcp-schema.sql`, ausgeführt gegen die
+Produktivdatenbank.
+
+**Neue Spalten an bestehenden Tabellen**
+
+| Tabelle | Spalte | Definition |
+|---|---|---|
+| `transactions` | `source` | `text NOT NULL DEFAULT 'app'`, CHECK `IN ('app','mcp')` — Herkunftsmarkierung |
+| `settings` | `month_start` | `integer NOT NULL DEFAULT 1`, CHECK 1–28 (siehe 2.5) |
+| `settings` | `show_ai_badges` | `boolean NOT NULL DEFAULT true` — reine Anzeigeeinstellung |
+| `settings` | `mcp_allow_pot_creation` | `boolean NOT NULL DEFAULT true` — steuert, ob Claude Sparttöpfe anlegen darf; wird zusätzlich in der INSERT-Policy auf `savings_pots` geprüft |
+
+**Neue Tabellen**
+
+| Tabelle | Zweck | Besonderheit |
+|---|---|---|
+| `mcp_clients` | Beschriftung und Widerruf registrierter OAuth-Clients (`client_id`, `label`, `revoked_at`) | Für `anon`, `authenticated` und `mcp_agent` vollständig gesperrt; nur `mcp_fn_owner` hat eine SELECT-Policy |
+| `activity_log` | Änderungsprotokoll — jede Änderung an `transactions`, `transaction_notes`, `savings_pots`, mit `actor` = `app` oder `mcp` | **Append-only:** keine UPDATE- und keine DELETE-Policy für irgendeine Rolle |
+| `transaction_notes` | Notizen an Transaktionen, FK mit `ON DELETE CASCADE` | **Append-only**, unveränderlich; getrennt vom bestehenden Feld `transactions.note`, das unverändert bleibt |
+
+**Neue Rollen**
+
+| Rolle | Zweck |
+|---|---|
+| `mcp_agent` | Zielrolle für Fremdclients. Keine Default-Privileges — eine künftig angelegte Tabelle ist für sie automatisch dicht, anders als bei `authenticated`, das über `pg_default_acl` automatisch `arwdDxtm` erhält. |
+| `mcp_fn_owner` | Eigentümer der SECURITY-DEFINER-Funktionen. Kein UPDATE, kein DELETE, nirgends. |
+
+**Neue Funktionen** (alle mit `SET search_path = ''`)
+
+| Funktion | Art | Zweck |
+|---|---|---|
+| `public.jwt_claims()` | Invoker, STABLE | Ersatz für `auth.jwt()` |
+| `public.jwt_user_id()` | Invoker, STABLE | Ersatz für `auth.uid()` |
+| `public.is_mcp_client()` | **Definer** | true, wenn das Token einen `client_id`-Claim trägt |
+| `public.is_revoked_client()` | **Definer** | true, wenn dieser Client in `mcp_clients` widerrufen ist |
+| `public.log_activity()` | **Definer**, Trigger | schreibt nach `activity_log` |
+| `public.custom_access_token_hook(jsonb)` | Invoker | Auth-Hook, setzt `role` auf `mcp_agent` bei vorhandener `client_id` |
+
+**Warum `auth.uid()` in allen Policies ersetzt wurde:** Das Schema `auth` gehört
+`supabase_admin`. Die Rolle `postgres` kann dort keine Rechte vergeben — ein
+`GRANT USAGE ON SCHEMA auth` an eine neue Rolle **warnt nur und bewirkt nichts**.
+Weder `mcp_fn_owner` noch `mcp_agent` könnten die Policies also auswerten.
+`public.jwt_user_id()` liest dieselbe Sitzungsvariable (`request.jwt.claims`) über
+`current_setting` aus `pg_catalog` und braucht dafür kein Schemarecht.
+
+**Neue Trigger**
+
+`trg_log_transactions`, `trg_log_transaction_notes`, `trg_log_savings_pots` —
+jeweils `AFTER INSERT OR UPDATE OR DELETE … FOR EACH ROW`, alle auf
+`public.log_activity()`.
+
+**Prüfstand:** `supabase/mcp-verify.sql` ist gegen die Produktivdatenbank
+gelaufen — **24 Prüfungen, 0 Befunde, 0 übersprungen**. Details in 7.0.
+
+---
+
 ## 3) DATENZUGRIFF IM CODE
 
 Dateien, die `supabase` importieren:
 
 ```
-src/api.ts                      (toter Code, kein Import irgendwo)
 src/context/AuthContext.tsx     (nur supabase.auth.*)
 src/context/BudgetContext.tsx   (indirekt über supabaseAdapter)
 src/hooks/useStorage.ts         (indirekt über supabaseAdapter)
@@ -827,7 +929,16 @@ Key-Präfix: `receipt:` + `txId`. Bilder werden auf max. 1400 px skaliert und al
 
 ---
 
-### 3.7 `src/api.ts` — Legacy, nicht eingebunden
+### 3.7 `src/api.ts` — **gelöscht in Commit `724faf4`**
+
+Die Datei existiert nicht mehr. Der folgende Abschnitt bleibt als Beleg dafür
+stehen, was sie enthielt und warum sie entfernt wurde — er beschreibt keinen
+aktuellen Zustand.
+
+<details>
+<summary>Historischer Stand (aufklappen)</summary>
+
+
 
 Vollständige exportierte Signaturen (zur Dokumentation; **keine dieser Funktionen wird aufgerufen**):
 
@@ -851,6 +962,8 @@ Abweichungen vom aktuellen Schema:
 - kennt `budget_id` nicht (weder Filter noch Insert)
 - `onConflict: 'user_id'` auf `settings` — dieses Constraint existiert nicht mehr
 - `fetchSettings()` verwendet `.maybeSingle()` ohne `budget_id`-Filter → würde bei mehreren Budgets einen „multiple rows"-Fehler auslösen
+
+</details>
 
 ---
 
@@ -934,7 +1047,7 @@ useEffect(() => {
 }, [user, activeBudgetId, loadData]);
 ```
 
-Filter nur auf `user_id`, nicht auf `budget_id` — jede Änderung an irgendeiner Transaktion des Nutzers löst ein vollständiges Neuladen des aktiven Budgets aus. Nur `transactions` wird überwacht; `categories`, `settings`, `budgets`, `savings_pots` nicht.
+Filter nur auf `user_id`, nicht auf `budget_id` — jede Änderung an irgendeiner Transaktion des Nutzers löst ein vollständiges Neuladen des aktiven Budgets aus. Nur `transactions` wird überwacht; `categories`, `settings`, `budgets`, `savings_pots`, `activity_log` und `transaction_notes` nicht.
 
 Weitere exportierte Handler-Signaturen in `MainApp.tsx`:
 
@@ -1086,7 +1199,10 @@ export type Tab =
 | `Transaction.note` | `note` (`?? ''` beim Schreiben, `''` bei NULL beim Lesen) | `transactions` |
 | `Category.monthlyBudget` | `monthly_budget` | `categories` |
 | `Settings.startingBalance` | `starting_balance` | `settings` |
-| `Settings.monthStart` | `month_start` (**Spalte nicht in den SQL-Dateien**) | `settings` |
+| `Settings.monthStart` | `month_start` | `settings` |
+| `Settings.showAiBadges` | `show_ai_badges` | `settings` |
+| `Settings.mcpAllowPotCreation` | `mcp_allow_pot_creation` | `settings` |
+| `Transaction.source` | `source` | `transactions` |
 | `Budget.startingBalance` | `starting_balance` | `budgets` |
 | `Budget.createdAt` | `created_at` (nur lesend) | `budgets` |
 | `SavingsPot.budgetId` | `budget_id` | `savings_pots` |
@@ -1296,6 +1412,31 @@ const savingTrend = useMemo(() => getLast12Months().map(({ year, month, label })
 ```
 
 ### 5.3 Monatssummen und der frei wählbare Monatsbeginn
+
+> **Korrigiert in Commit `e9e3c83`.** Der unten gezeigte Code enthielt einen
+> Zeitzonenfehler: `getCustomMonthRange()` bildete das Enddatum über
+> `toISOString()` auf einem lokal konstruierten `Date`. Östlich von Greenwich —
+> also auch in Deutschland — lag das Enddatum dadurch **immer einen Tag zu
+> früh**. Bei `monthStart = 15` etwa `2026-01-15 .. 2026-02-13` statt
+> `.. 2026-02-14`.
+>
+> **Heutiger Stand:** Die Zeitraumberechnung liegt einmalig in
+> `getMonthRange()`; `getCustomMonthRange()` bestimmt nur noch den passenden
+> Monat und delegiert dorthin. Gerechnet wird auf UTC-Mitternacht, formatiert
+> über den UTC-Formatierer `toISODate()`. Welcher Tag „heute" ist, bleibt eine
+> lokale Frage und läuft über `todayISO()`.
+>
+> Nachgewiesen: 5376 Kombinationen von `getMonthRange` (3 Jahre × 12 Monate ×
+> `monthStart` 1–28) über vier Zeitzonen gegen die Implementierung im
+> MCP-Server — **0 Abweichungen**. Frontend und Edge Function rechnen identische
+> Zeiträume. 23 Tests in `src/utils.dates.test.ts`, ausführbar mit `npm test`.
+>
+> Ein Unterschied bleibt und ist unvermeidbar: welcher Tag „heute" ist. Das
+> Frontend nimmt den lokalen Tag des Nutzers, der Server kennt nur UTC. In
+> Berlin fallen beide zwischen 00:00 und 01:00 bzw. 02:00 Ortszeit auseinander.
+> Bei `monthStart = 1` und zu jeder anderen Tageszeit sind sie deckungsgleich.
+>
+> Der folgende Codeauszug zeigt den **historischen** Stand von `88be12e`.
 
 Zwei verschiedene Monatsbegriffe existieren nebeneinander:
 
@@ -1529,7 +1670,28 @@ useEffect(() => {
 }, [storage, process]);
 ```
 
-Fälligkeitsfortschreibung (`useRecurringTransactions.ts:7-32`):
+> **Korrigiert in Commit `e9e3c83`.** Die drei Helfer unten benutzten
+> `toISOString()` auf lokal veränderten `Date`-Objekten. Folgen, alle in
+> Europe/Berlin nachgewiesen:
+>
+> - `addDays('2026-03-29', +1)` ergab **wieder `2026-03-29`** — ein Fixpunkt am
+>   Tag der Sommerzeitumstellung. Ein täglicher Dauerauftrag wäre dort
+>   **dauerhaft** hängengeblieben und hätte bei jedem App-Start erneut gebucht.
+>   Im Test blieben 278 aufeinanderfolgende Tage stehen.
+> - `addMonths('2026-03-15', +1)` ergab `2026-04-14` statt `2026-04-15`.
+> - `addMonths('2026-01-31', +1)` ergab `2026-03-03` statt `2026-02-28`
+>   (JS-Monatsüberlauf, unabhängig von der Zeitzone).
+>
+> **Heutiger Stand:** Die Arithmetik liegt zentral in `src/utils.ts`
+> (`addDays`, `addMonths`, `addYears`), rechnet auf UTC-Mitternacht und klemmt
+> den Monatsüberlauf auf das Monatsende. `useRecurringTransactions.ts`
+> importiert sie; die Fälligkeitsprüfung selbst ist unverändert.
+> Abgesichert durch `src/utils.dates.test.ts` gegen eine Referenzimplementierung
+> ohne jedes `Date`.
+>
+> Der folgende Codeauszug zeigt den **historischen** Stand von `88be12e`.
+
+Fälligkeitsfortschreibung (`useRecurringTransactions.ts`, historisch):
 
 ```ts
 function addDays(iso: string, n: number): string {
@@ -1729,7 +1891,7 @@ Die App liest genau **zwei** Umgebungsvariablen. Beide werden in `src/lib/supaba
 | `VITE_SUPABASE_URL` | `src/lib/supabase.ts:3` |
 | `VITE_SUPABASE_ANON_KEY` | `src/lib/supabase.ts:4` |
 
-Beide sind auch in `.env.example` und in der lokalen `.env.local` gesetzt (Werte hier nicht wiedergegeben). Für Netlify müssen sie unter *Site settings → Environment variables* hinterlegt werden — das `VITE_`-Präfix bedeutet, dass beide Werte **im Client-Bundle landen** und öffentlich sind; das ist für den Anon-Key vorgesehen, RLS ist die eigentliche Schutzschicht.
+Beide sind auch in `.env.example` und in der lokalen `.env.local` gesetzt (Werte hier nicht wiedergegeben). Für **Vercel** müssen sie unter *Project Settings → Environment Variables* hinterlegt werden (der Umzug von Netlify überträgt sie nicht automatisch) — das `VITE_`-Präfix bedeutet, dass beide Werte **im Client-Bundle landen** und öffentlich sind; das ist für den Anon-Key vorgesehen, RLS ist die eigentliche Schutzschicht.
 
 Fehlt eine der beiden Variablen, wirft `src/lib/supabase.ts` beim Modul-Import:
 
@@ -1783,7 +1945,7 @@ Es gibt damit **zwei unabhängige Wege**, auf denen die `user_id` in eine Abfrag
 
 Beide müssen übereinstimmen, sonst schlägt der Schreibvorgang an der `WITH CHECK`-Bedingung fehl (Policies aus `fix-rls.sql`). Ein Client, der eine fremde `user_id` schreiben will, scheitert an RLS.
 
-Die veraltete `src/api.ts` ermittelt die `user_id` anders — pro Aufruf über `supabase.auth.getUser()`:
+Die inzwischen gelöschte `src/api.ts` ermittelte die `user_id` anders — pro Aufruf über `supabase.auth.getUser()`:
 
 ```ts
 async function getUserId(): Promise<string> {
@@ -1897,19 +2059,52 @@ Achtung: **Alle** Gast-Transaktionen aus **allen** Gast-Budgets landen im **eine
 
 Was ein externer Dienst wissen muss, um korrekt in diese Datenbank zu schreiben, und was aus dem Code allein nicht eindeutig hervorgeht.
 
-### 7.1 Nicht aus dem Repo ableitbar — muss vor dem ersten Schreibzugriff geklärt werden
+### 7.0 Was seit der ersten Fassung geschlossen wurde
 
-1. **Existiert `settings.month_start` in der Live-Datenbank?**
-   Der Code schreibt `month_start` (`supabaseAdapter.ts:310`) und liest es (`:39`), aber **keine** `.sql`-Datei im Repo legt diese Spalte an. Entweder wurde sie manuell im Supabase-Dashboard ergänzt (dann fehlt die Migration im Repo) oder jeder Profil-Speichervorgang mit gesetztem Monatsbeginn schlägt mit `column "month_start" does not exist` fehl. **Muss gegen die Live-DB geprüft werden.** Erwarteter Typ nach Code: ganzzahlig, Wertebereich 1–28 (Client-seitig geklemmt in `Settings.tsx:322`: `Math.min(28, Math.max(1, monthStart))`), nullable.
+| Damals offen | Heutiger Stand |
+|---|---|
+| Existiert `settings.month_start`? | **Geklärt.** Existiert als `integer NOT NULL DEFAULT 1`, CHECK 1–28. Migration ausgeführt. Siehe 2.5. |
+| Welche `.sql`-Dateien sind gelaufen, existieren die Spartopf-Trigger? | **Geklärt.** `mcp-verify.sql` prüft die Trigger katalogbasiert (Prüfung 16) und lief mit 0 Befunden. |
+| Sind die RLS-Policies mit `WITH CHECK` aktiv? | **Überholt.** Die `FOR ALL`-Policies sind durch je vier getrennte ersetzt; der Stand wurde per `mcp-verify.sql` gegen die Live-DB bestätigt. |
+| `src/api.ts` mit `category_id` | **Gelöscht** (Commit `724faf4`). |
+| Zeitzonenfehler in `getCustomMonthRange()` | **Behoben** (Commit `e9e3c83`). Siehe 5.3. |
+| Zeitzonenfehler in der Dauerauftrags-Arithmetik | **Behoben** (Commit `e9e3c83`). Siehe 5.5. |
+| „Heute" als UTC-Tag an neun Stellen | **Behoben** (Commit `e9e3c83`) — `todayISO()` liest lokal. |
 
-2. **Welche `.sql`-Dateien sind in welcher Reihenfolge tatsächlich gelaufen?**
-   Es gibt keine Migrationsverwaltung, keinen `schema_migrations`-Marker, keine `supabase/config.toml`. Die `fix-*.sql`-Dateien enthalten `DROP TABLE … CASCADE`; ob `savings-pots.sql` **nach** `fix-transactions.sql` erneut ausgeführt wurde, entscheidet darüber, ob `trg_distribute_income` und `trg_redistribute_income` heute überhaupt existieren. **Der reale Zustand der Trigger ist aus dem Repo nicht bestimmbar.**
+**Verhaltensprüfung gegen die Produktivdatenbank:** `supabase/mcp-verify.sql`
+ist gelaufen — **24 Prüfungen, 0 Befunde, 0 übersprungen**. Geprüft werden unter
+anderem: Aufrufbarkeit der Policy-Funktionen für `anon`/`authenticated`/
+`mcp_agent`, Erkennung von App- gegen OAuth-Token, Wirksamkeit des Widerrufs,
+Append-only von `activity_log` und `transaction_notes` auf Policy- **und**
+Grant-Ebene, Vorhandensein der drei Protokoll-Trigger, und dass `mcp_fn_owner`
+tatsächlich in `activity_log` schreiben kann.
 
-3. **Sind die RLS-Policies der `fix-rls.sql`-Variante (mit `WITH CHECK`) aktiv?**
-   Ohne `WITH CHECK` lässt eine `FOR ALL`-Policy INSERTs mit fremder `user_id` durch. Der Zustand ist nur in der Live-DB feststellbar.
+Zwei Anmerkungen zu diesem Lauf:
+
+- Die Prüfungen **9 und 18** wurden vorher gestrichen. Sie führten ein
+  `UPDATE … WHERE false` als Nachweis aus, dass `mcp_agent` nicht schreiben darf.
+  Das war redundant zu Prüfung 20 (`has_table_privilege`, katalogbasiert, für
+  alle Tabellen) und im Fehlerfall irreführend: wäre das Grant vorhanden und nur
+  RLS würde blockieren, liefe das Statement fehlerfrei durch und die Prüfung
+  meldete fälschlich „DURCHGELASSEN". Die Nummern bleiben als Lücke bestehen,
+  damit ältere Ausgaben vergleichbar bleiben.
+- Das Skript läuft vollständig zwischen `BEGIN` und `ROLLBACK`. Die beiden
+  Probeschreibungen (je eine Zeile in `mcp_clients` und `activity_log`) sind
+  damit folgenlos.
+
+### 7.1 Nicht aus dem Repo ableitbar — Restposten
+
+1. **Der OAuth-Consent-Durchlauf ist nie mit echten Zugangsdaten getestet worden.** ⚠️ **Offen.**
+   Die Route `/oauth/consent` und `src/pages/ConsentPage.tsx` sind implementiert und im Browser geprüft: abgemeldeter Aufruf mit `authorization_id` zeigt zuverlässig das Login-Formular (nicht das Dashboard), fehlender Parameter zeigt eine klare Fehlermeldung, und die Adresse bleibt über einen Login-Versuch hinweg unverändert. **Nicht geprüft** ist der vollständige Durchlauf: echtes Login → Zustimmungsdialog → `approveAuthorization()` → Rücksprung zum Client. Dafür fehlten gültige Zugangsdaten. Strukturell kann die Adresse nicht verlorengehen, weil das Login inline in derselben Komponente stattfindet und keine Navigation auslöst — aber das ist eine Herleitung, kein Testergebnis.
+
+2. **Läuft der Custom Access Token Hook bei OAuth-2.1-Tokens wirklich?**
+   Supabase dokumentiert „Custom Access Token Hooks are triggered for **all** token issuance". Der OAuth-2.1-Server ist allerdings Public Beta, und Supabase empfiehlt den Rollentausch selbst nicht. Verifizierbar nur durch Dekodieren eines echten Claude-Tokens: steht dort `"role": "mcp_agent"`, greift Schicht 2. Steht dort `authenticated`, greift **nur** Schicht 1 — was für sich genommen ausreicht.
+
+3. **Ist Realtime für `public.transactions` in der Publikation aktiviert?**
+   Unverändert offen — siehe Punkt 4.
 
 4. **Ist Realtime für `public.transactions` in der Publikation aktiviert?**
-   `MainApp.tsx:101-107` abonniert `postgres_changes` auf `transactions`. Kein SQL im Repo führt `ALTER PUBLICATION supabase_realtime ADD TABLE transactions;` aus. Ohne diese Aktivierung ist die Subscription wirkungslos (und externe Schreibvorgänge werden im offenen Client nicht sichtbar).
+   `MainApp.tsx` abonniert `postgres_changes` auf `transactions`. Kein SQL im Repo führt `ALTER PUBLICATION supabase_realtime ADD TABLE transactions;` aus. Ohne diese Aktivierung ist die Subscription wirkungslos (und externe Schreibvorgänge werden im offenen Client nicht sichtbar). `mcp-verify.sql` prüft das nicht.
 
 5. **Welcher Schlüssel wird verwendet?**
    Der Client nutzt den Anon-Key + Nutzer-JWT. Ein externer Dienst müsste entweder (a) sich als Nutzer authentifizieren und dann automatisch RLS-konform schreiben, oder (b) den `service_role`-Key nutzen — dann wird RLS umgangen und `user_id` muss **manuell korrekt** gesetzt werden, sonst entstehen für den Nutzer unsichtbare Zeilen. Der Service-Role-Key ist nirgends im Repo hinterlegt.
@@ -1958,7 +2153,7 @@ Was ein externer Dienst wissen muss, um korrekt in diese Datenbank zu schreiben,
 
 ### 7.3 Konkrete Inkonsistenzen und Fallstricke im Bestand
 
-1. **`src/api.ts` ist toter, schemawidriger Code.** Verwendet `category_id`, kennt `budget_id` nicht, nutzt `onConflict: 'user_id'` auf `settings` (Constraint existiert nicht mehr) und würde bei `fetchSettings()` mit mehreren Budgets an `.maybeSingle()` scheitern. Wird von nichts importiert. Sollte gelöscht werden — sonst besteht das Risiko, dass jemand sie versehentlich reaktiviert.
+1. ~~**`src/api.ts` ist toter, schemawidriger Code.**~~ **Erledigt** — in Commit `724faf4` gelöscht.
 
 2. **Zwei konkurrierende Startsaldo-Quellen.** `budgets.starting_balance` **und** `settings.starting_balance` existieren beide. Die Berechnungen nutzen durchgängig `settings.starting_balance` (`Dashboard.tsx:79`, `BudgetsPage.tsx:58`, `Settings.tsx:131`). `budgets.starting_balance` wird bei `createBudget()` gesetzt (`BudgetContext.tsx:117` → `supabaseAdapter.ts:380`) und in `BudgetCard` zur Bearbeitung angezeigt (`BudgetsPage.tsx:373, 383`), fließt aber **in keine Kontostandsberechnung ein**. Wer im Bereichs-Editor das Startguthaben ändert, ändert damit nicht den angezeigten Kontostand. Welcher Wert der maßgebliche ist, geht aus dem Code nicht eindeutig hervor — de facto ist es `settings.starting_balance`.
 
@@ -1978,7 +2173,7 @@ Was ein externer Dienst wissen muss, um korrekt in diese Datenbank zu schreiben,
 
 10. **`settings.UNIQUE (user_id, budget_id)` schützt nicht gegen mehrfache NULL-`budget_id`.** Postgres behandelt NULLs im Unique-Index als verschieden. `initializeNewUser()` räumt solche Zeilen deshalb bei jedem Start vorsorglich ab (`supabaseAdapter.ts:93-97`) — externe Schreibvorgänge, die `settings` ohne `budget_id` anlegen, werden beim nächsten App-Start gelöscht.
 
-11. **Keine Route `/auth/callback`.** `authRedirectTo` verweist auf `${origin}/auth/callback`; `App.tsx` hat dafür keine Route. Funktioniert über den Catch-all + Netlify-SPA-Redirect, ist aber nicht explizit vorgesehen. In Supabase muss diese URL trotzdem unter *Authentication → URL Configuration* als erlaubte Redirect-URL eingetragen sein.
+11. **Keine Route `/auth/callback`.** `authRedirectTo` verweist auf `${origin}/auth/callback`; das Routing hat dafür keine eigene Route. Funktioniert über den Catch-all + den SPA-Rewrite in `vercel.json`, ist aber nicht explizit vorgesehen. In Supabase muss diese URL trotzdem unter *Authentication → URL Configuration* als erlaubte Redirect-URL eingetragen sein.
 
 12. **Belege existieren nur im Browser.** `receiptStorage.ts` speichert Beleg-Bilder als Data-URL im `localStorage` unter `receipt:${txId}`. Sie werden nie hochgeladen, sind gerätegebunden, gehen bei „Site data löschen" verloren, sind nicht Teil eines Exports und unterliegen dem localStorage-Limit (typisch 5–10 MB pro Origin). `saveReceipt()` schluckt Fehler bei vollem Speicher stillschweigend (`catch { /* storage full */ }`).
 
@@ -1986,7 +2181,7 @@ Was ein externer Dienst wissen muss, um korrekt in diese Datenbank zu schreiben,
 
 14. **`ft_guest_active_budget_id` wird auch für eingeloggte Nutzer verwendet.** Der Key-Name ist irreführend; das aktive Budget ist damit gerätelokal, nicht kontogebunden.
 
-15. **`monthStart` wirkt nur in einem Teil der Auswertungen.** Dashboard-KPIs, Donut „Lfd. Monat" und die Analysis-Monatsauswahl nutzen `getCustomMonthRange`/`getMonthRange`; 12-Monats-Balken, Spartrend, Kategoriedetail, Jahresübersicht und der Vormonatsvergleich in der Auswertung nutzen `filterByMonth` (reiner Kalendermonat). Bei einem `monthStart ≠ 1` weichen KPI-Werte und Diagrammwerte für denselben Monat systematisch voneinander ab.
+15. **`monthStart` wirkt nur in einem Teil der Auswertungen.** *(Der früher hier beschriebene Tag-zu-früh-Fehler ist behoben — siehe 5.3. Die folgende Ungleichbehandlung besteht weiter.)* Dashboard-KPIs, Donut „Lfd. Monat" und die Analysis-Monatsauswahl nutzen `getCustomMonthRange`/`getMonthRange`; 12-Monats-Balken, Spartrend, Kategoriedetail, Jahresübersicht und der Vormonatsvergleich in der Auswertung nutzen `filterByMonth` (reiner Kalendermonat). Bei einem `monthStart ≠ 1` weichen KPI-Werte und Diagrammwerte für denselben Monat systematisch voneinander ab.
 
 16. **`Ø/Monat` im Kategorie-Ranking teilt immer durch 12.** `monthCount = Math.max(getLast12Months().length, 1)` ist konstant 12; der Zähler `total` umfasst dagegen **alle** Ausgaben seit Beginn. Bei weniger oder mehr als 12 Monaten Datenbestand ist der Wert kein Monatsdurchschnitt.
 
@@ -1996,9 +2191,15 @@ Was ein externer Dienst wissen muss, um korrekt in diese Datenbank zu schreiben,
 
 19. **Der Realtime-Filter ist grob.** `filter: user_id=eq.${user.id}` ohne `budget_id` → jede Transaktionsänderung in irgendeinem Bereich löst ein vollständiges Neuladen des aktiven Bereichs aus. Für `categories`, `settings`, `budgets` und `savings_pots` gibt es keine Subscription — externe Schreibvorgänge auf diese Tabellen erreichen einen offenen Client nicht.
 
-20. **Node-Version nirgends fixiert.** Kein `engines`, keine `.nvmrc`. Ein CI- oder Netlify-Build läuft auf der jeweiligen Default-Node-Version. Bei `vite@8` / `typescript@6` ist das nicht risikofrei.
+20. **Node-Version nirgends fixiert.** Kein `engines`, keine `.nvmrc` — geprüft, gilt weiterhin. Ein CI- oder Vercel-Build läuft auf der jeweiligen Default-Node-Version. Bei `vite@8` / `typescript@6` ist das nicht risikofrei. Zusätzlich relevant seit `e9e3c83`: `npm test` setzt Nodes eingebauten Test-Runner **mit TypeScript-Unterstützung** voraus (Node 22+); der Build prüft die Testdateien über `tsconfig.test.json` mit.
 
 21. **`db.json` im Root ist ein Relikt.** `json-server`-Schema aus einer früheren Stufe, ohne Bezug zum aktuellen Code, gitignored. Enthält die Default-Kategorien in einer vierten Variante (IDs `cat-exp-1` … ohne Suffix, plus ein `settings`-Objekt mit `id: "1"`).
+
+22. **Der Protokoll-Trigger schluckt Fehler.** `log_activity()` fängt jede Ausnahme ab und gibt sie nur als `NOTICE` aus — bewusst, damit eine misslingende Protokollierung nie eine Buchung kippt. Die Kehrseite: ein fehlendes Recht bliebe unbemerkt, das Log einfach leer. Dagegen stehen die Katalogprüfung in `mcp-schema.sql` und Prüfung 17 in `mcp-verify.sql`, die probeweise als `mcp_fn_owner` schreibt. Beide sind gelaufen.
+
+23. **`activity_log` wächst bei Sparttöpfen schnell.** Eine Einnahme mit drei befüllten Töpfen erzeugt eine `insert`-Zeile für die Buchung plus drei `update`-Zeilen für die Töpfe (der Verteilungs-Trigger fasst jeden Topf an). Gewollt — jede Änderung wird protokolliert — macht das Log aber gesprächig. Es gibt keine Aufbewahrungsfrist und kein Aufräumen.
+
+24. **`db.json` im Root existiert weiterhin** — `json-server`-Relikt, gitignored, ohne Bezug zum Code (siehe Punkt 21).
 
 ### 7.4 Minimal-Rezept für einen externen Schreiber
 
