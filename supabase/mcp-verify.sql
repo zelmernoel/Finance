@@ -2,20 +2,90 @@
 -- Finance — Verhaltensprüfung des MCP-Zugriffs
 --
 -- NACH supabase/mcp-schema.sql im SQL Editor ausführen.
--- Ändert nichts dauerhaft: die einzige geschriebene Zeile ist eine
--- Probe in mcp_clients, die am Ende wieder entfernt wird.
 --
--- Warum getrennt von der Migration: diese Datei wechselt Rollen und
--- simuliert Tokens. Ein Fehlschlag hier soll die Migration NICHT
--- zurückrollen — sie kann korrekt sein, während eine Rolle
--- unerwartet konfiguriert ist.
+-- ── Vor dem Ausführen lesen ─────────────────────────────────
 --
--- Ergebnis: eine Tabelle. Jede Zeile mit ok = false ist ein Befund.
--- Die Prüfungen sind so formuliert, dass sie fehlschlagen KÖNNEN —
--- mehrere erwarten ausdrücklich, dass etwas NICHT geht.
+-- 1. DIE DATEI SCHREIBT NICHTS FEST.
+--    Alles steht zwischen BEGIN (unten) und ROLLBACK (ganz am
+--    Dateiende). Am Schluss wird die Transaktion grundsätzlich
+--    zurückgerollt — auch wenn alle Prüfungen bestehen. Die
+--    Ergebnis-Abfragen laufen VOR dem ROLLBACK, die Ausgabe
+--    bleibt also sichtbar.
+--
+--    Damit sind auch die drei Probeschreibungen folgenlos:
+--    je eine Zeile in mcp_clients (Prüfung 5/6) und in
+--    activity_log (Prüfung 17). Beide werden ohnehin im Skript
+--    wieder gelöscht; der ROLLBACK ist das zweite Netz.
+--
+-- 2. SUPABASE WARNT — beides erwartbar:
+--
+--    "destructive operation"  Ausgelöst von DROP/DELETE/UPDATE
+--                             weiter unten. Alle wirken
+--                             ausschliesslich auf die eigenen
+--                             Probezeilen, erkennbar an den
+--                             Markern '__mcp_verify_probe__' und
+--                             '__verify_probe__'. transactions,
+--                             settings und budgets werden nirgends
+--                             beschrieben.
+--
+--    "Tabelle mcp_check ohne Row Level Security"
+--                             Fehlalarm. mcp_check ist eine
+--                             TEMP-Tabelle im sitzungsprivaten
+--                             Schema pg_temp. Für anon und
+--                             authenticated ist sie grundsätzlich
+--                             nicht erreichbar — die laufen auf
+--                             anderen Verbindungen und sehen
+--                             fremde Temp-Schemata nicht. RLS ist
+--                             dort weder möglich noch nötig. Sie
+--                             enthält nur Prüfergebnisse, keine
+--                             Finanzdaten.
+--
+--    Im Bestätigungsdialog also durchlaufen lassen, nicht
+--    abbrechen. (Bricht man ab, ist ebenfalls nichts passiert.)
+--
+-- 3. ERGEBNIS: zwei Tabellen am Ende. Jede Zeile mit
+--    ">>> BEFUND <<<" ist ein Problem; erwartet ist befunde = 0.
+--    Die Prüfungen sind so formuliert, dass sie fehlschlagen
+--    KÖNNEN — mehrere erwarten ausdrücklich, dass etwas NICHT geht.
+--
+-- ── Warum getrennt von der Migration ────────────────────────
+--
+-- Diese Datei wechselt Rollen und simuliert Tokens. Ein Fehlschlag
+-- hier soll die Migration NICHT zurückrollen — sie kann korrekt
+-- sein, während eine Rolle unerwartet konfiguriert ist.
+--
+-- ── Lücken in der Nummerierung ──────────────────────────────
+--
+-- Die Nummern 9 und 18 fehlen bewusst. Dort standen zwei
+-- Prüfungen der Form
+--
+--     SET LOCAL ROLE mcp_agent;
+--     UPDATE public.transactions SET description = description WHERE false;
+--
+-- die belegen sollten, dass mcp_agent nicht schreiben darf. Beide
+-- sind ersatzlos entfallen:
+--
+--   * redundant — Prüfung 20 beantwortet dieselbe Frage
+--     katalogbasiert über has_table_privilege, und zwar für ALLE
+--     Tabellen in public statt für zwei;
+--   * im Fehlerfall irreführend — wäre das Grant vorhanden und
+--     nur RLS würde blockieren, liefe `UPDATE … WHERE false`
+--     fehlerfrei durch (null Zeilen lösen keine RLS-Verletzung
+--     aus) und die Prüfung meldete fälschlich "DURCHGELASSEN".
+--     Sie testete also ohnehin nur die Grant-Ebene.
+--
+-- Die übrigen Nummern bleiben unverändert: sie sind Bezeichner,
+-- keine laufende Zählung. Ein Umnummerieren würde jede Referenz
+-- von aussen (MCP-SETUP.md) und jeden Vergleich mit einer älteren
+-- Ausgabe still ungültig machen.
 -- ============================================================
 
-DROP TABLE IF EXISTS mcp_check;
+BEGIN;
+
+-- pg_temp ausdrücklich qualifiziert: unqualifiziert würde die
+-- Auflösung beim ERSTEN Lauf durch pg_temp hindurch auf public
+-- durchfallen — und dort im Zweifel eine echte Tabelle treffen.
+DROP TABLE IF EXISTS pg_temp.mcp_check;
 CREATE TEMP TABLE mcp_check (
   nr       int,
   bereich  text,
@@ -138,25 +208,11 @@ BEGIN
        'ja', 'FEHLER: ' || SQLERRM, false);
   END;
 
-  -- ── 9: mcp_agent darf transactions NICHT ändern (Absenzprüfung) ──
-  BEGIN
-    SET LOCAL ROLE mcp_agent;
-    UPDATE public.transactions SET description = description WHERE false;
-    RESET ROLE;
-    INSERT INTO mcp_check VALUES
-      (9, 'mcp_agent', 'UPDATE auf transactions wird abgelehnt',
-       'abgelehnt', 'DURCHGELASSEN', false);
-  EXCEPTION WHEN insufficient_privilege THEN
-    RESET ROLE;
-    INSERT INTO mcp_check VALUES
-      (9, 'mcp_agent', 'UPDATE auf transactions wird abgelehnt',
-       'abgelehnt', 'abgelehnt (permission denied)', true);
-  WHEN OTHERS THEN
-    RESET ROLE;
-    INSERT INTO mcp_check VALUES
-      (9, 'mcp_agent', 'UPDATE auf transactions wird abgelehnt',
-       'abgelehnt', 'abgelehnt (' || SQLERRM || ')', true);
-  END;
+  -- ── 9 entfällt ──────────────────────────────────────────────
+  -- Hier stand ein `UPDATE public.transactions … WHERE false` als
+  -- Nachweis, dass mcp_agent nicht schreiben darf. Redundant zu
+  -- Prüfung 20 und im Fehlerfall irreführend — Begründung im
+  -- Kopfkommentar. Nummer bleibt frei.
 
   -- ── 10: mcp_agent darf mcp_clients NICHT lesen (Absenzprüfung) ──
   BEGIN
@@ -304,20 +360,11 @@ BEGIN
     END;
   END IF;
 
-  -- ── 18: mcp_agent darf Notizen nicht ändern (Absenzprüfung) ──
-  BEGIN
-    SET LOCAL ROLE mcp_agent;
-    UPDATE public.transaction_notes SET body = body WHERE false;
-    RESET ROLE;
-    INSERT INTO mcp_check VALUES
-      (18, 'mcp_agent', 'UPDATE auf transaction_notes wird abgelehnt',
-       'abgelehnt', 'DURCHGELASSEN', false);
-  EXCEPTION WHEN OTHERS THEN
-    RESET ROLE;
-    INSERT INTO mcp_check VALUES
-      (18, 'mcp_agent', 'UPDATE auf transaction_notes wird abgelehnt',
-       'abgelehnt', 'abgelehnt (' || SQLERRM || ')', true);
-  END;
+  -- ── 18 entfällt ─────────────────────────────────────────────
+  -- Hier stand ein `UPDATE public.transaction_notes … WHERE false`
+  -- als Nachweis, dass mcp_agent Notizen nicht ändern darf.
+  -- Redundant zu Prüfung 20 und im Fehlerfall irreführend —
+  -- Begründung im Kopfkommentar. Nummer bleibt frei.
 
   -- ── 19: Die Spartopf-Policy prüft den Schalter wirklich ──
   SELECT count(*) INTO v_cnt
@@ -361,3 +408,16 @@ SELECT count(*) FILTER (WHERE ok IS FALSE)  AS befunde,
        count(*) FILTER (WHERE ok IS NULL)   AS uebersprungen,
        count(*)                             AS geprueft
   FROM mcp_check;
+
+-- ============================================================
+-- Alles zurückrollen — unabhängig vom Ergebnis.
+--
+-- Muss NACH beiden Ergebnis-Abfragen stehen: die Ausgabe geht
+-- vorher an den Client, mcp_check verschwindet mit dem Rollback.
+--
+-- Danach ist die Datenbank exakt im Zustand von vor dem Lauf:
+-- keine Probezeile in mcp_clients, keine in activity_log, keine
+-- Temp-Tabelle.
+-- ============================================================
+
+ROLLBACK;
