@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import type { Transaction, Category, Settings, Tab } from './types';
+import type { StorageAdapter } from './lib/storage';
 import { useAuth } from './context/AuthContext';
 import { useBudget } from './context/BudgetContext';
 import { useStorage } from './hooks/useStorage';
@@ -10,41 +11,67 @@ import { useToast } from './components/Toast';
 import Navigation from './components/Navigation';
 import GuestBanner from './components/GuestBanner';
 import MigrateModal from './components/MigrateModal';
-import Dashboard from './pages/Dashboard';
-import Transactions from './pages/Transactions';
-import NewTransaction from './pages/NewTransaction';
-import Analysis from './pages/Analysis';
-import RecurringPage from './pages/RecurringPage';
-import BudgetsPage from './pages/BudgetsPage';
-import SavingsPotsPage from './pages/SavingsPotsPage';
-import SettingsPage from './pages/Settings';
+import Onboarding from './components/Onboarding';
 import {
   hasGuestData, getAllGuestData, clearAllGuestData,
 } from './lib/localStorageAdapter';
 import { createSupabaseAdapter } from './lib/supabaseAdapter';
 import { v4 as uuidv4 } from 'uuid';
 import { ACCENT } from './utils';
+import { ROUTES, pathForTab } from './routes';
 
 const DEFAULT_SETTINGS: Settings = { id: '', startingBalance: 0, name: '' };
+
+// ── Outlet-Kontext ────────────────────────────────────────────────────────────
+// MainApp ist die Layout-Route: sie lädt die Daten einmal und hält sie über
+// Routenwechsel hinweg. Die Unterseiten holen sich alles über useAppContext(),
+// die Props der Seitenkomponenten bleiben unverändert.
+
+export interface AppContextValue {
+  transactions: Transaction[];
+  categories: Category[];
+  settings: Settings;
+  storage: StorageAdapter | null;
+  activeBudgetId: string | null;
+  activeBudgetName: string;
+  /** Vom Dashboard angeklickter Monat, den die Auswertung anzeigen soll. */
+  analysisMonth?: { year: number; month: number };
+  goToMonth: (year: number, month: number) => void;
+  goToTab: (tab: Tab) => void;
+  openTransaction: (txId: string) => void;
+  createTransaction: (t: Transaction) => Promise<void>;
+  updateTransaction: (id: string, patch: Partial<Omit<Transaction, 'id'>>) => Promise<void>;
+  deleteTransaction: (id: string) => Promise<void>;
+  addCategory: (name: string, type: 'income' | 'expense') => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
+  updateCategory: (id: string, patch: { monthlyBudget?: number }) => Promise<void>;
+  saveSettings: (s: Partial<Omit<Settings, 'id'>>) => Promise<void>;
+  importTransactions: (txs: Transaction[]) => Promise<void>;
+  resetAllTransactions: () => Promise<void>;
+  deleteTransactionsByPeriod: (from: string, to: string) => Promise<void>;
+}
+
+export function useAppContext(): AppContextValue {
+  return useOutletContext<AppContextValue>();
+}
 
 export default function MainApp() {
   const { user } = useAuth();
   const { activeBudgetId, activeBudget, loadingBudgets } = useBudget();
   const { showToast } = useToast();
-  const [, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   // ── Storage adapter scoped to active budget ───────────────────────────────
   const storage = useStorage(activeBudgetId);
 
   // ── App state ─────────────────────────────────────────────────────────────
-  const [tab, setTab]                 = useState<Tab>('dashboard');
   const [transactions, setTx]         = useState<Transaction[]>([]);
   const [categories, setCats]         = useState<Category[]>([]);
   const [settings, setSettings]       = useState<Settings>(DEFAULT_SETTINGS);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
   const [showMigrate, setShowMigrate] = useState(false);
-  // Vom Dashboard angeklickter Monat, den die Auswertung anzeigen soll
   const [analysisMonth, setAnalysisMonth] = useState<{ year: number; month: number } | undefined>();
   const prevUserRef                   = useRef<string | null>(null);
 
@@ -70,6 +97,12 @@ export default function MainApp() {
   }, [storage]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Direkt über die Navigation aufgerufen → wieder laufender Monat.
+  useEffect(() => {
+    if (location.pathname !== ROUTES.analysis) return;
+    if (!(location.state as { month?: unknown } | null)?.month) setAnalysisMonth(undefined);
+  }, [location.pathname, location.state]);
 
   // ── Detect login → offer guest data migration ─────────────────────────────
   useEffect(() => {
@@ -193,10 +226,18 @@ export default function MainApp() {
     setTx(prev => prev.filter(t => !ids.includes(t.id)));
   }
 
-  /** Aus dem KI-Protokoll heraus eine einzelne Buchung öffnen. */
+  /** Aus dem Protokoll heraus eine einzelne Buchung öffnen. */
   function handleOpenTransaction(txId: string) {
-    setSearchParams({ q: txId });
-    setTab('transactions');
+    navigate(`${ROUTES.transactions}?q=${encodeURIComponent(txId)}`);
+  }
+
+  function goToTab(tab: Tab) {
+    navigate(pathForTab(tab));
+  }
+
+  function goToMonth(year: number, month: number) {
+    setAnalysisMonth({ year, month });
+    navigate(ROUTES.analysis, { state: { month: { year, month } } });
   }
 
   // ── Migration: import guest data into Supabase ────────────────────────────
@@ -254,88 +295,37 @@ export default function MainApp() {
 
   const guestTxCount = hasGuestData() ? getAllGuestData().transactions.length : 0;
 
+  const ctx: AppContextValue = {
+    transactions,
+    categories,
+    settings,
+    storage,
+    activeBudgetId,
+    activeBudgetName: activeBudget?.name ?? 'Budget',
+    analysisMonth,
+    goToMonth,
+    goToTab,
+    openTransaction: handleOpenTransaction,
+    createTransaction: handleCreate,
+    updateTransaction: handleUpdateTransaction,
+    deleteTransaction: handleDelete,
+    addCategory: handleAddCategory,
+    deleteCategory: handleDeleteCategory,
+    updateCategory: handleUpdateCategory,
+    saveSettings: handleSaveSettings,
+    importTransactions: handleImportTransactions,
+    resetAllTransactions: handleResetAllTransactions,
+    deleteTransactionsByPeriod: handleDeleteTransactionsByPeriod,
+  };
+
   return (
     <div className="min-h-screen bg-page">
       {!user && <GuestBanner />}
-      <Navigation
-        activeTab={tab}
-        onTabChange={(t) => {
-          // Direkt über die Navigation aufgerufen → wieder laufender Monat
-          if (t === 'analysis') setAnalysisMonth(undefined);
-          setTab(t);
-        }}
-      />
+      <Navigation />
 
       <main className="max-w-screen-xl mx-auto px-4 lg:px-6 py-4 lg:py-6 pb-24 lg:pb-6">
-        <div key={tab} className="tab-enter">
-        {tab === 'dashboard' && (
-          <Dashboard
-            transactions={transactions}
-            categories={categories}
-            startingBalance={settings.startingBalance}
-            userName={settings.name}
-            onNavigateToNew={() => setTab('new')}
-            onNavigateToMonth={(year, month) => { setAnalysisMonth({ year, month }); setTab('analysis'); }}
-            monthStart={settings.monthStart ?? 1}
-          />
-        )}
-        {tab === 'transactions' && (
-          <Transactions
-            transactions={transactions}
-            categories={categories}
-            onDelete={handleDelete}
-            onUpdate={handleUpdateTransaction}
-            onNavigateToNew={() => setTab('new')}
-            budgetName={activeBudget?.name ?? 'Budget'}
-            userName={settings.name}
-            showAiBadges={settings.showAiBadges !== false}
-          />
-        )}
-        {tab === 'new' && (
-          <NewTransaction
-            categories={categories}
-            onSubmit={handleCreate}
-            onAddCategory={handleAddCategory}
-            onSuccess={setTab}
-            storage={storage}
-            budgetId={activeBudgetId ?? ''}
-          />
-        )}
-        {tab === 'analysis' && (
-          <Analysis
-            transactions={transactions}
-            categories={categories}
-            onNavigateToNew={() => setTab('new')}
-            onUpdateCategory={handleUpdateCategory}
-            monthStart={settings.monthStart ?? 1}
-            initialMonth={analysisMonth}
-          />
-        )}
-        {tab === 'recurring' && storage && activeBudgetId && (
-          <RecurringPage
-            storage={storage}
-            categories={categories}
-            budgetId={activeBudgetId}
-            onNavigateToNew={() => setTab('new')}
-          />
-        )}
-        {tab === 'budgets' && <BudgetsPage />}
-        {tab === 'savings' && <SavingsPotsPage />}
-        {tab === 'settings' && (
-          <SettingsPage
-            settings={settings}
-            categories={categories}
-            transactions={transactions}
-            onSaveSettings={handleSaveSettings}
-            onDeleteCategory={handleDeleteCategory}
-            onAddCategory={handleAddCategory}
-            onUpdateCategory={handleUpdateCategory}
-            onImportTransactions={handleImportTransactions}
-            onResetAllTransactions={handleResetAllTransactions}
-            onDeleteTransactionsByPeriod={handleDeleteTransactionsByPeriod}
-            onOpenTransaction={handleOpenTransaction}
-          />
-        )}
+        <div key={location.pathname} className="tab-enter">
+          <Outlet context={ctx} />
         </div>
       </main>
 
@@ -346,6 +336,9 @@ export default function MainApp() {
           onDiscard={handleMigrateDiscard}
         />
       )}
+
+      {/* Einmaliger Erstkontakt. Zeigt sich nur, solange das Flag fehlt. */}
+      <Onboarding settings={settings} onSaveSettings={handleSaveSettings} />
     </div>
   );
 }

@@ -10,7 +10,7 @@
 # nicht dieser Wert.
 # ============================================================
 
-project_id = "finanztracker"
+project_id = "finance"
 
 # ── MCP-Server ──────────────────────────────────────────────
 # verify_jwt = false, weil die Function das Token SELBST gegen den

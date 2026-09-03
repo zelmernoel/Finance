@@ -1,5 +1,5 @@
 -- ============================================================
--- FinanzTracker — Sparttöpfe (Envelope Budgeting)
+-- Finance — Sparttöpfe (Envelope Budgeting)
 -- Im Supabase SQL Editor ausführen (einmalig, nach schema.sql)
 --
 -- Verteilung, Rückabwicklung und die 100%-Grenze laufen server-

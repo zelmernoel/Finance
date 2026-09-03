@@ -1,4 +1,4 @@
-# SYSTEM-REPORT — FinanzTracker
+# SYSTEM-REPORT — Finance
 
 Stand: 2026-09-02 · Branch `main` · letzter Commit `88be12e`
 Analysegrundlage: Repository-Inhalt (keine Live-Datenbank abgefragt).

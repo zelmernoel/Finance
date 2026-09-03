@@ -1,4 +1,4 @@
-# FinanzTracker
+# Finance
 
 Persönlicher Finanz-Tracker — vollständig lokal entwickelbar, mit Supabase als Backend.
 

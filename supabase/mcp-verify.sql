@@ -1,5 +1,5 @@
 -- ============================================================
--- FinanzTracker — Verhaltensprüfung des MCP-Zugriffs
+-- Finance — Verhaltensprüfung des MCP-Zugriffs
 --
 -- NACH supabase/mcp-schema.sql im SQL Editor ausführen.
 -- Ändert nichts dauerhaft: die einzige geschriebene Zeile ist eine

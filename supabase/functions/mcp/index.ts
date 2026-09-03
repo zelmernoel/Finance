@@ -1,5 +1,5 @@
 // ============================================================
-// FinanzTracker — MCP-Server als Supabase Edge Function
+// Finance — MCP-Server als Supabase Edge Function
 //
 // Streamable HTTP, stateless, JSON-RPC 2.0 von Hand (kein MCP-SDK).
 //
@@ -37,7 +37,7 @@ const MCP_PUBLIC_URL = (
 const AUTH_SERVER = `${SUPABASE_URL}/auth/v1`;
 const RESOURCE_METADATA_URL = `${MCP_PUBLIC_URL}/.well-known/oauth-protected-resource`;
 
-const SERVER_NAME = 'finanztracker';
+const SERVER_NAME = 'finance';
 const SERVER_VERSION = '1.0.0';
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
@@ -1797,7 +1797,7 @@ async function handleRpc(ctx: AuthContext, msg: Record<string, unknown>): Promis
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
         instructions:
-          'Zugriff auf den FinanzTracker. Alle Auswertungs-Tools benötigen eine budget_id — diese zuerst ' +
+          'Zugriff auf den Finance. Alle Auswertungs-Tools benötigen eine budget_id — diese zuerst ' +
           'mit list-budgets ermitteln. Schreiben ist ausschliesslich über create-transaction möglich; ' +
           'Ändern und Löschen sind serverseitig gesperrt. Kategorienamen müssen exakt einer vorhandenen ' +
           'Kategorie entsprechen (list-categories).',
@@ -1857,7 +1857,7 @@ function protectedResourceMetadata(): Response {
     authorization_servers: [AUTH_SERVER],
     bearer_methods_supported: ['header'],
     scopes_supported: ['openid', 'email', 'profile'],
-    resource_name: 'FinanzTracker MCP',
+    resource_name: 'Finance MCP',
     resource_documentation: `${MCP_PUBLIC_URL}`,
   });
 }

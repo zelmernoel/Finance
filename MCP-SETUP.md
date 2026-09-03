@@ -1,4 +1,4 @@
-# MCP-Setup — Claude-Zugriff auf den FinanzTracker
+# MCP-Setup — Claude-Zugriff auf den Finance
 
 Claude (claude.ai) darf **alle Finanzdaten lesen** und **Transaktionen, Notizen
 und Sparttöpfe anlegen**. Ändern und Löschen sind gesperrt — nicht in der

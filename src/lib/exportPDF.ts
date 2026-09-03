@@ -26,7 +26,7 @@ export function exportTransactionsPDF(
   // ── Header ──
   doc.setFontSize(16);
   doc.setFont('helvetica', 'bold');
-  doc.text('FinanzTracker', 14, 20);
+  doc.text('Finance', 14, 20);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(120);
@@ -72,5 +72,5 @@ export function exportTransactionsPDF(
     columnStyles: { 4: { halign: 'right' } },
   });
 
-  doc.save(`FinanzTracker_${budgetName}_${new Date().toISOString().slice(0, 10)}.pdf`);
+  doc.save(`Finance_${budgetName}_${new Date().toISOString().slice(0, 10)}.pdf`);
 }

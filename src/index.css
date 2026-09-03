@@ -4,7 +4,11 @@
 @variant dark (&:where(.dark, .dark *));
 
 :root {
-  --accent: #4A6FA5;
+  /* Die vom Nutzer gewählte Akzentfarbe steht in --accent-base (inline von
+     applyAccent gesetzt). --accent ist der daraus abgeleitete Wert, den die
+     Themes überschreiben dürfen — deshalb steht er hier und nicht inline. */
+  --accent-base: #4A6FA5;
+  --accent: var(--accent-base);
   /* Page background behind the cards. Palettes override it; dark mode maps it
      onto the ramp below. `.bg-page` is the utility that paints it. */
   --page-bg: #ffffff;
@@ -308,3 +312,109 @@ body {
 .slide-in-up {
   animation: slideInUp 0.16s ease-out both;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Farbthemen („Look")
+
+   Getrennt von den Hintergrund-Paletten: die Palette bestimmt den Farbton,
+   der Look die Sättigung und die Trennschärfe. Umgeschaltet wird über
+   [data-theme] auf <html> — keine Komponente muss davon wissen.
+
+   Ohne data-theme gilt „Standard": das bisherige Erscheinungsbild, hier
+   bewusst unangetastet.
+
+   Warum die Flächen vorher milchig wirkten: Tailwind übersetzt
+   `bg-gray-700/50` zu einem color-mix mit Transparenz. Auf getönten
+   Hintergründen mischt sich die Seitenfarbe durch und nimmt der Fläche die
+   Sättigung. Die neuen Themes ersetzen diese Halbtransparenzen durch
+   deckende Töne — über Attributselektoren auf die Klassennamen, damit die
+   Komponenten unverändert bleiben.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Klar ──────────────────────────────────────────────────────────────────
+   Grautöne mit leichtem Blaustich statt neutralem Grau (Chroma 0.012–0.03
+   statt 0), Akzent mit deutlich mehr Farbkraft. */
+
+html[data-theme="klar"] {
+  --color-gray-50:  oklch(98.4% 0.004 250);
+  --color-gray-100: oklch(96.2% 0.008 250);
+  --color-gray-200: oklch(91.5% 0.014 250);
+  --color-gray-300: oklch(84.5% 0.022 250);
+  --color-gray-400: oklch(69.5% 0.032 250);
+  --color-gray-500: oklch(56.0% 0.038 250);
+  --color-gray-600: oklch(45.5% 0.040 250);
+  --color-gray-700: oklch(36.5% 0.038 250);
+  --color-gray-800: oklch(26.5% 0.032 250);
+  --color-gray-900: oklch(19.0% 0.026 250);
+  --color-gray-950: oklch(12.5% 0.022 250);
+}
+
+/* Akzentfarbe kräftiger: gleicher Farbton, Chroma angehoben.
+   oklch(from …) lässt den vom Nutzer gewählten Ton unangetastet und dreht
+   nur die Sättigung hoch. */
+@supports (color: oklch(from red l c h)) {
+  html[data-theme="klar"] {
+    --accent: oklch(from var(--accent-base, #4A6FA5) calc(l * 0.96) calc(c * 2.1) h);
+  }
+  html[data-theme="kontrast"] {
+    --accent: oklch(from var(--accent-base, #4A6FA5) calc(l * 0.88) calc(c * 2.6) h);
+  }
+}
+
+/* Halbtransparente Flächen volldeckend machen. */
+html[data-theme="klar"] [class*="bg-gray-700/50"],
+html[data-theme="kontrast"] [class*="bg-gray-700/50"] {
+  background-color: var(--color-gray-100);
+}
+html[data-theme="klar"].dark [class*="bg-gray-700/50"],
+html[data-theme="kontrast"].dark [class*="bg-gray-700/50"] {
+  background-color: var(--color-gray-800);
+}
+html[data-theme="klar"] [class*="bg-gray-50/60"],
+html[data-theme="kontrast"] [class*="bg-gray-50/60"] {
+  background-color: var(--color-gray-50);
+}
+html[data-theme="klar"].dark [class*="bg-gray-700/20"],
+html[data-theme="kontrast"].dark [class*="bg-gray-700/20"] {
+  background-color: var(--color-gray-800);
+}
+
+/* ── Kontrast ──────────────────────────────────────────────────────────────
+   Reinweiss bzw. sehr dunkel, dazwischen klare Stufen. Ränder statt
+   Schatten: Schatten verwischen die Kante, ein 1px-Rand nicht. */
+
+html[data-theme="kontrast"] {
+  --color-gray-50:  oklch(100% 0 0);
+  --color-gray-100: oklch(97.0% 0.004 250);
+  --color-gray-200: oklch(88.0% 0.010 250);
+  --color-gray-300: oklch(78.0% 0.016 250);
+  --color-gray-400: oklch(62.0% 0.024 250);
+  --color-gray-500: oklch(47.0% 0.030 250);
+  --color-gray-600: oklch(36.0% 0.032 250);
+  --color-gray-700: oklch(26.0% 0.028 250);
+  --color-gray-800: oklch(17.0% 0.022 250);
+  --color-gray-900: oklch(10.5% 0.016 250);
+  --color-gray-950: oklch(5.0% 0.010 250);
+}
+
+html[data-theme="kontrast"] { --page-bg: oklch(100% 0 0); }
+html[data-theme="kontrast"].dark { --page-bg: var(--color-gray-950); }
+
+/* Schatten raus, Kanten rein. */
+html[data-theme="kontrast"] [class*="shadow-sm"],
+html[data-theme="kontrast"] [class*="shadow-lg"],
+html[data-theme="kontrast"] [class*="shadow-xl"],
+html[data-theme="kontrast"] [class*="shadow-2xl"] {
+  box-shadow: none;
+  border: 1px solid var(--color-gray-300);
+}
+html[data-theme="kontrast"].dark [class*="shadow-sm"],
+html[data-theme="kontrast"].dark [class*="shadow-lg"],
+html[data-theme="kontrast"].dark [class*="shadow-xl"],
+html[data-theme="kontrast"].dark [class*="shadow-2xl"] {
+  border-color: var(--color-gray-700);
+}
+
+/* Trennlinien und Ränder eine Stufe kräftiger. */
+html[data-theme="kontrast"] [class*="border-gray-100"] { border-color: var(--color-gray-300); }
+html[data-theme="kontrast"].dark [class*="border-gray-700"] { border-color: var(--color-gray-600); }

@@ -36,7 +36,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="flex items-center justify-center gap-2 mb-8">
-          <img src="/logo.png" alt="FinanzTracker Logo" className="w-8 h-8 object-contain" />
+          <img src="/logo.png" alt="Finance Logo" className="w-8 h-8 object-contain" />
           <span className="font-semibold text-gray-900 dark:text-gray-100 text-base tracking-tight">Finance</span>
         </div>
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm p-7">

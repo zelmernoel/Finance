@@ -17,6 +17,35 @@ export const ACCENT_PRESETS = [
 export const DEFAULT_ACCENT = '#4A6FA5';
 
 /**
+ * Farbthemen ("Look").
+ *
+ * Getrennt von den Hintergrund-Paletten: die Palette bestimmt den Farbton, der
+ * Look die Sättigung und die Trennschärfe. `standard` lässt das bisherige
+ * Erscheinungsbild unangetastet und bleibt Vorgabe.
+ */
+export const LOOKS = [
+  {
+    id: 'standard',
+    name: 'Standard',
+    desc: 'Wie gehabt — gedämpfte Flächen, weiche Schatten',
+  },
+  {
+    id: 'klar',
+    name: 'Klar',
+    desc: 'Gesättigte Farben, keine milchigen Flächen',
+  },
+  {
+    id: 'kontrast',
+    name: 'Kontrast',
+    desc: 'Maximale Trennschärfe, klare Ränder statt Schatten',
+  },
+] as const;
+
+export type LookId = typeof LOOKS[number]['id'];
+
+export const DEFAULT_LOOK: LookId = 'standard';
+
+/**
  * Background palettes.
  * `mode: 'any'` works in both schemes; 'dark'/'light' palettes have no legible
  * counterpart in the other scheme, so choosing one switches and locks the mode.
@@ -70,6 +99,8 @@ interface ThemeContextValue {
   setAccent: (color: string) => void;
   palette: PaletteId;
   setPalette: (p: PaletteId) => void;
+  look: LookId;
+  setLook: (l: LookId) => void;
   sections: AnalysisSections;
   toggleSection: (id: AnalysisSectionId) => void;
   setAllSections: (on: boolean) => void;
@@ -82,6 +113,8 @@ const ThemeContext = createContext<ThemeContextValue>({
   setAccent: () => {},
   palette: DEFAULT_PALETTE,
   setPalette: () => {},
+  look: DEFAULT_LOOK,
+  setLook: () => {},
   sections: ALL_SECTIONS_ON,
   toggleSection: () => {},
   setAllSections: () => {},
@@ -99,7 +132,17 @@ export function applyTheme(theme: Theme): void {
 }
 
 function applyAccent(color: string): void {
-  document.documentElement.style.setProperty('--accent', color);
+  // Nur die Basis inline setzen: --accent leitet sich in CSS daraus ab, damit
+  // die Farbthemen die Sättigung anheben können. Eine inline gesetzte
+  // --accent würde jede Stylesheet-Regel überstimmen.
+  document.documentElement.style.setProperty('--accent-base', color);
+}
+
+function applyLook(id: LookId): void {
+  // Ein Attribut auf <html> — die Themes leben komplett in CSS-Variablen,
+  // keine Komponente muss davon wissen.
+  if (id === DEFAULT_LOOK) document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', id);
 }
 
 function applyPalette(id: PaletteId): void {
@@ -124,6 +167,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       const stored = localStorage.getItem('finance-palette') as PaletteId | null;
       return PALETTES.some(p => p.id === stored) ? stored! : DEFAULT_PALETTE;
     } catch { return DEFAULT_PALETTE; }
+  });
+
+  const [look, setLookState] = useState<LookId>(() => {
+    try {
+      const stored = localStorage.getItem('finance-look') as LookId | null;
+      return LOOKS.some(l => l.id === stored) ? stored! : DEFAULT_LOOK;
+    } catch { return DEFAULT_LOOK; }
   });
 
   const [sections, setSections] = useState<AnalysisSections>(() => {
@@ -162,6 +212,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyAccent(color);
   };
 
+  const setLook = (id: LookId) => {
+    setLookState(id);
+    try { localStorage.setItem('finance-look', id); } catch { /* ignore */ }
+    applyLook(id);
+  };
+
   const setPalette = (id: PaletteId) => {
     setPaletteState(id);
     try { localStorage.setItem('finance-palette', id); } catch { /* ignore */ }
@@ -174,6 +230,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // Apply on mount
   useEffect(() => {
     applyPalette(palette);
+    applyLook(look);
     // A stored theme can contradict a single-scheme palette (e.g. hand-edited
     // storage, or a palette that gained a mode after it was saved).
     const pinned = palettePinnedTheme(palette);
@@ -196,6 +253,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     {
       value: {
         theme, setTheme, accent, setAccent, palette, setPalette,
+        look, setLook,
         sections, toggleSection, setAllSections,
       },
     },

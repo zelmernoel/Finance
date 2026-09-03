@@ -1,5 +1,5 @@
 -- ============================================================
--- FinanzTracker — MCP-Zugriff (Claude über Supabase Edge Function)
+-- Finance — MCP-Zugriff (Claude über Supabase Edge Function)
 --
 -- Im Supabase SQL Editor in EINEM Stück ausführen. Idempotent:
 -- mehrfaches Ausführen ist schadlos.

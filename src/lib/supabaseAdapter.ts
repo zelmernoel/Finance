@@ -41,6 +41,8 @@ function rowToSettings(row: Record<string, unknown>): Settings {
     showAiBadges:    row.show_ai_badges != null ? Boolean(row.show_ai_badges) : true,
     mcpAllowPotCreation:
       row.mcp_allow_pot_creation != null ? Boolean(row.mcp_allow_pot_creation) : true,
+    onboardingCompleted:
+      row.onboarding_completed != null ? Boolean(row.onboarding_completed) : false,
   };
 }
 
@@ -315,6 +317,8 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       if (patch.showAiBadges !== undefined)    dbPatch.show_ai_badges   = patch.showAiBadges;
       if (patch.mcpAllowPotCreation !== undefined)
         dbPatch.mcp_allow_pot_creation = patch.mcpAllowPotCreation;
+      if (patch.onboardingCompleted !== undefined)
+        dbPatch.onboarding_completed = patch.onboardingCompleted;
       const { data, error } = await supabase.from('settings')
         .upsert(dbPatch, { onConflict: 'user_id,budget_id' }).select().single();
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }

@@ -32,6 +32,8 @@ export interface Settings {
   showAiBadges?: boolean;
   /** Darf Claude Sparttöpfe anlegen? Wird zusätzlich per RLS erzwungen. */
   mcpAllowPotCreation?: boolean;
+  /** Einmaliger Erstkontakt abgeschlossen — steuert nur, ob das Onboarding erscheint. */
+  onboardingCompleted?: boolean;
 }
 
 // ── Budget (workspace) ────────────────────────────────────────────────────────

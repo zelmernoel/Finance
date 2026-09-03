@@ -1,5 +1,5 @@
 -- ============================================================
--- FinanzTracker — Supabase Schema v2
+-- Finance — Supabase Schema v2
 -- Im Supabase SQL Editor ausführen (einmalig, bei Neuinstallation)
 -- Bei bestehender DB: nur die mit "-- NEU" markierten Blöcke ausführen
 -- ============================================================

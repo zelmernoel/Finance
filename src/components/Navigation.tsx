@@ -1,22 +1,17 @@
 import { useRef, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import type { Tab } from '../types';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useBudget } from '../context/BudgetContext';
 import { ACCENT } from '../utils';
+import { ROUTES } from '../routes';
 
-interface NavigationProps {
-  activeTab: Tab;
-  onTabChange: (tab: Tab) => void;
-}
-
-// Regular nav tabs for desktop (excludes 'new', 'settings', 'budgets' — rendered separately)
-const NAV_TABS: { id: Tab; label: string }[] = [
-  { id: 'dashboard',    label: 'Dashboard' },
-  { id: 'transactions', label: 'Transaktionen' },
-  { id: 'analysis',     label: 'Auswertungen' },
-  { id: 'recurring',    label: 'Daueraufträge' },
-  { id: 'savings',      label: 'Sparttöpfe' },
+// Regular nav links for desktop ('new', 'settings' und 'budgets' hängen separat)
+const NAV_LINKS: { to: string; label: string }[] = [
+  { to: ROUTES.dashboard,    label: 'Dashboard' },
+  { to: ROUTES.transactions, label: 'Transaktionen' },
+  { to: ROUTES.analysis,     label: 'Auswertungen' },
+  { to: ROUTES.recurring,    label: 'Daueraufträge' },
+  { to: ROUTES.savings,      label: 'Sparttöpfe' },
 ];
 
 // ── Mobile bottom nav tabs ────────────────────────────────────────────────────
@@ -67,24 +62,33 @@ function IconSettings() {
 }
 
 const MOBILE_TABS = [
-  { id: 'dashboard'    as Tab, label: 'Start',           Icon: IconDashboard },
-  { id: 'transactions' as Tab, label: 'Verlauf',         Icon: IconTransactions },
-  { id: 'new'          as Tab, label: 'Neu',             Icon: IconPlus },
-  { id: 'analysis'     as Tab, label: 'Analyse',         Icon: IconAnalysis },
-  { id: 'settings'     as Tab, label: 'Mehr',            Icon: IconSettings },
+  { to: ROUTES.dashboard,    label: 'Start',   Icon: IconDashboard },
+  { to: ROUTES.transactions, label: 'Verlauf', Icon: IconTransactions },
+  { to: ROUTES.new,          label: 'Neu',     Icon: IconPlus },
+  { to: ROUTES.analysis,     label: 'Analyse', Icon: IconAnalysis },
+  { to: ROUTES.settings,     label: 'Mehr',    Icon: IconSettings },
 ];
 
-export default function Navigation({ activeTab, onTabChange }: NavigationProps) {
+/** Routen, die hinter dem „Mehr"-Eintrag der mobilen Leiste liegen. */
+const MORE_ROUTES: string[] = [
+  ROUTES.settings, ROUTES.recurring, ROUTES.savings, ROUTES.budgets, ROUTES.aiLog,
+];
+
+export default function Navigation() {
   const { user, signOut } = useAuth();
   const { budgets, activeBudget, setActiveBudgetId } = useBudget();
   const navigate = useNavigate();
+  const location = useLocation();
   const [signingOut, setSigningOut] = useState(false);
   const [dropdownOpen, setDropdown] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const path = location.pathname;
+  const isActive = (to: string) => (to === ROUTES.dashboard ? path === to : path.startsWith(to));
+
   // Close "Mehr" sheet when navigating away
-  useEffect(() => { setMoreOpen(false); }, [activeTab]);
+  useEffect(() => { setMoreOpen(false); }, [path]);
 
   // Close budget dropdown on click outside
   useEffect(() => {
@@ -111,7 +115,7 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
           <div className="flex items-center gap-0">
             {/* Logo */}
             <div className="flex items-center gap-2 mr-6 py-4 flex-shrink-0">
-              <img src="/logo.png" alt="FinanzTracker" className="w-6 h-6 object-contain" />
+              <img src="/logo.png" alt="Finance" className="w-6 h-6 object-contain" />
               <span className="font-semibold text-gray-900 dark:text-gray-100 text-sm tracking-tight">Finance</span>
             </div>
 
@@ -148,7 +152,7 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
                     ))}
                     <div className="border-t border-gray-100 dark:border-gray-700 mt-1 pt-1">
                       <button
-                        onClick={() => { onTabChange('budgets'); setDropdown(false); }}
+                        onClick={() => { navigate(ROUTES.budgets); setDropdown(false); }}
                         className="w-full text-left px-3 py-2 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700"
                       >
                         Bereiche verwalten →
@@ -161,23 +165,24 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
 
             {/* Regular nav tabs */}
             <div className="flex gap-0 overflow-x-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
-              {NAV_TABS.map((t) => {
-                const isActive = activeTab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => { onTabChange(t.id); setDropdown(false); }}
-                    className={`px-2 xl:px-3 py-4 text-xs xl:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                      isActive
+              {NAV_LINKS.map((t) => (
+                <NavLink
+                  key={t.to}
+                  to={t.to}
+                  end={t.to === ROUTES.dashboard}
+                  onClick={() => setDropdown(false)}
+                  className={({ isActive: active }) =>
+                    `px-2 xl:px-3 py-4 text-xs xl:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                      active
                         ? 'border-[color:var(--accent)]'
                         : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200 hover:border-gray-300 dark:hover:border-gray-600'
-                    }`}
-                    style={isActive ? { color: 'var(--accent)' } : undefined}
-                  >
-                    {t.label}
-                  </button>
-                );
-              })}
+                    }`
+                  }
+                  style={({ isActive: active }) => (active ? { color: 'var(--accent)' } : undefined)}
+                >
+                  {t.label}
+                </NavLink>
+              ))}
             </div>
 
             {/* Spacer */}
@@ -185,7 +190,7 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
 
             {/* "+ Neue Transaktion" — accent pill button */}
             <button
-              onClick={() => { onTabChange('new'); setDropdown(false); }}
+              onClick={() => { navigate(ROUTES.new); setDropdown(false); }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-full transition-opacity hover:opacity-80 flex-shrink-0 mx-3"
               style={{ backgroundColor: ACCENT }}
             >
@@ -197,14 +202,14 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
 
             {/* Settings gear icon — right edge */}
             <button
-              onClick={() => { onTabChange('settings'); setDropdown(false); }}
+              onClick={() => { navigate(ROUTES.settings); setDropdown(false); }}
               title="Einstellungen"
               className={`p-2 rounded transition-colors flex-shrink-0 ${
-                activeTab === 'settings'
+                isActive(ROUTES.settings)
                   ? ''
                   : 'text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
               }`}
-              style={activeTab === 'settings' ? { color: 'var(--accent)' } : undefined}
+              style={isActive(ROUTES.settings) ? { color: 'var(--accent)' } : undefined}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -242,11 +247,11 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
       <nav className="fixed bottom-0 inset-x-0 z-10 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 lg:hidden">
         <div className="flex items-end justify-around px-1 pt-1 pb-2">
           {MOBILE_TABS.map((t) => {
-            if (t.id === 'new') {
+            if (t.to === ROUTES.new) {
               return (
                 <button
                   key="new"
-                  onClick={() => onTabChange('new')}
+                  onClick={() => navigate(ROUTES.new)}
                   className="flex flex-col items-center gap-0.5 -mt-5 px-2"
                   aria-label="Neue Transaktion"
                 >
@@ -262,8 +267,8 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
             }
 
             // "Mehr" tab — opens sheet instead of navigating
-            if (t.id === 'settings') {
-              const moreActive = moreOpen || activeTab === 'settings' || activeTab === 'recurring' || activeTab === 'budgets' || activeTab === 'savings';
+            if (t.to === ROUTES.settings) {
+              const moreActive = moreOpen || MORE_ROUTES.some(r => isActive(r));
               return (
                 <button
                   key="mehr"
@@ -281,21 +286,25 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
               );
             }
 
-            const isActive = activeTab === t.id;
             return (
-              <button
-                key={t.id}
-                onClick={() => onTabChange(t.id)}
+              <NavLink
+                key={t.to}
+                to={t.to}
+                end={t.to === ROUTES.dashboard}
                 className="flex flex-col items-center gap-0.5 py-1 px-2 min-w-[56px] min-h-[44px] justify-center transition-colors"
-                style={isActive ? { color: ACCENT } : undefined}
+                style={({ isActive: active }) => (active ? { color: ACCENT } : undefined)}
               >
-                <span className={isActive ? '' : 'text-gray-400 dark:text-gray-500'}>
-                  <t.Icon />
-                </span>
-                <span className={`text-[10px] ${isActive ? '' : 'text-gray-400 dark:text-gray-500'}`}>
-                  {t.label}
-                </span>
-              </button>
+                {({ isActive: active }) => (
+                  <>
+                    <span className={active ? '' : 'text-gray-400 dark:text-gray-500'}>
+                      <t.Icon />
+                    </span>
+                    <span className={`text-[10px] ${active ? '' : 'text-gray-400 dark:text-gray-500'}`}>
+                      {t.label}
+                    </span>
+                  </>
+                )}
+              </NavLink>
             );
           })}
         </div>
@@ -312,23 +321,23 @@ export default function Navigation({ activeTab, onTabChange }: NavigationProps) 
           <div className="sheet-enter fixed bottom-[60px] inset-x-0 z-30 lg:hidden">
             <div className="mx-3 mb-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
               {([
-                { id: 'recurring' as Tab, label: 'Daueraufträge', desc: 'Wiederkehrende Buchungen verwalten' },
-                { id: 'savings'   as Tab, label: 'Sparttöpfe',     desc: 'Einnahmen automatisch verteilen' },
-                { id: 'budgets'   as Tab, label: 'Bereiche',       desc: 'Privates & anderes trennen' },
-                { id: 'settings'  as Tab, label: 'Einstellungen',  desc: 'Kategorien, Darstellung, Export' },
+                { to: ROUTES.recurring, label: 'Daueraufträge', desc: 'Wiederkehrende Buchungen verwalten' },
+                { to: ROUTES.savings,   label: 'Sparttöpfe',    desc: 'Einnahmen automatisch verteilen' },
+                { to: ROUTES.budgets,   label: 'Bereiche',      desc: 'Privates & anderes trennen' },
+                { to: ROUTES.settings,  label: 'Einstellungen', desc: 'Kategorien, Darstellung, Export' },
               ]).map((item, i, arr) => (
                 <button
-                  key={item.id}
-                  onClick={() => { onTabChange(item.id); setMoreOpen(false); }}
+                  key={item.to}
+                  onClick={() => { navigate(item.to); setMoreOpen(false); }}
                   className={`w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
                     i < arr.length - 1 ? 'border-b border-gray-100 dark:border-gray-700' : ''
-                  } ${activeTab === item.id ? 'bg-gray-50 dark:bg-gray-700/50' : ''}`}
+                  } ${isActive(item.to) ? 'bg-gray-50 dark:bg-gray-700/50' : ''}`}
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.label}</p>
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{item.desc}</p>
                   </div>
-                  {activeTab === item.id && (
+                  {isActive(item.to) && (
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: ACCENT }} />
                   )}
                   <svg className="w-4 h-4 text-gray-300 dark:text-gray-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -27,7 +27,7 @@ export function printTransactions(
 <html lang="de">
 <head>
 <meta charset="UTF-8"/>
-<title>FinanzTracker – ${budgetName}</title>
+<title>Finance – ${budgetName}</title>
 <style>
   body { font-family: system-ui, sans-serif; font-size: 12px; color: #111; margin: 24px; }
   h1 { font-size: 18px; margin-bottom: 4px; }
@@ -46,7 +46,7 @@ export function printTransactions(
 </style>
 </head>
 <body>
-<h1>FinanzTracker – ${budgetName}</h1>
+<h1>Finance – ${budgetName}</h1>
 <p class="meta">Erstellt am ${fmtDate(new Date().toISOString().slice(0, 10))}${userName ? ' · ' + userName : ''}</p>
 <div class="summary">
   <span><strong>${formatEuro(income)}</strong>Einnahmen</span>

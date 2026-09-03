@@ -87,7 +87,7 @@ export default function SignupPage() {
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="flex items-center justify-center gap-2 mb-8">
-          <img src="/logo.png" alt="FinanzTracker Logo" className="w-8 h-8 object-contain" />
+          <img src="/logo.png" alt="Finance Logo" className="w-8 h-8 object-contain" />
           <span className="font-semibold text-gray-900 dark:text-gray-100 text-base tracking-tight">Finance</span>
         </div>
 
