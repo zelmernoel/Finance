@@ -10,6 +10,20 @@ import { ACCENT } from '../utils';
 // (supabase.auth.oauth.*), vorhanden ab @supabase/auth-js 2.107.
 //
 // Es werden keine HTTP-Endpunkte von Hand nachgebaut.
+//
+// Zwei Eigenschaften sind hier bewusst so gebaut und sollten so bleiben:
+//
+// 1. Diese Seite leitet NIE von selbst zum Client zurück. Auch wenn Supabase
+//    meldet, die Zustimmung liege bereits vor, muss sie aktiv bestätigt werden.
+//    Ein Consent, den niemand gesehen hat, ist keine Zustimmung — und ohne
+//    diesen Halt würde auf einem geteilten Gerät still das zuletzt angemeldete
+//    Konto autorisiert.
+//
+// 2. Der Kontowechsel meldet die Sitzung ab, OHNE zu navigieren. Die Adresse
+//    dieser Seite bleibt dabei unverändert, weshalb sämtliche OAuth-Parameter
+//    den Umweg überstehen — auch solche, die dieser Code gar nicht kennt.
+//    Würde man stattdessen auf /login umleiten und die Parameter von Hand
+//    wieder anhängen, ginge beim ersten übersehenen Parameter der Flow kaputt.
 
 type Details = {
   authorization_id: string;
@@ -58,7 +72,7 @@ function Spinner() {
 
 // ── Inline-Login, damit der Nutzer die Seite nicht verlässt ───────────────────
 
-function InlineLogin({ clientHint }: { clientHint: string }) {
+function InlineLogin({ clientHint, switched }: { clientHint: string; switched: boolean }) {
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -83,7 +97,9 @@ function InlineLogin({ clientHint }: { clientHint: string }) {
     <>
       <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Anmelden</h1>
       <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-        {clientHint} wartet auf deine Freigabe. Melde dich an, um fortzufahren.
+        {switched
+          ? 'Die vorherige Sitzung wurde in diesem Browser beendet. Melde dich mit dem Konto an, das du verbinden möchtest.'
+          : clientHint + ' wartet auf deine Freigabe. Melde dich an, um fortzufahren.'}
       </p>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -119,6 +135,57 @@ function InlineLogin({ clientHint }: { clientHint: string }) {
   );
 }
 
+// ── Konto, für das die Freigabe gilt ─────────────────────────────────────────
+// Steht bewusst oberhalb der Buttons und nicht im Kleingedruckten: wer hier
+// zustimmt, soll ohne Suchen sehen, welches Konto er gerade freigibt.
+
+function AccountBlock({
+  email, mismatch, busy, switching, onSwitch,
+}: {
+  email: string;
+  mismatch: string | null;
+  busy: boolean;
+  switching: boolean;
+  onSwitch: () => void;
+}) {
+  return (
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-3.5 mb-5 bg-gray-50 dark:bg-gray-700/40">
+      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+        Freigabe gilt für
+      </p>
+      <div className="flex items-center gap-2.5">
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-semibold flex-shrink-0"
+          style={{ backgroundColor: ACCENT }}
+          aria-hidden="true"
+        >
+          {email.charAt(0).toUpperCase()}
+        </div>
+        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate" title={email}>
+          {email}
+        </p>
+      </div>
+
+      {mismatch && (
+        <p className="text-xs text-amber-700 dark:text-amber-400 mt-2.5 leading-relaxed">
+          Achtung: In diesem Browser ist <strong>{mismatch}</strong> angemeldet, freigegeben würde aber
+          das oben genannte Konto. Wechsle das Konto, wenn das nicht beabsichtigt ist.
+        </p>
+      )}
+
+      <button
+        type="button"
+        onClick={onSwitch}
+        disabled={busy}
+        className="mt-3 text-xs font-medium underline underline-offset-2 disabled:opacity-50 disabled:no-underline"
+        style={{ color: ACCENT }}
+      >
+        {switching ? 'Sitzung wird beendet…' : 'Anderes Konto verwenden'}
+      </button>
+    </div>
+  );
+}
+
 // ── Consent ───────────────────────────────────────────────────────────────────
 
 export default function ConsentPage() {
@@ -129,14 +196,23 @@ export default function ConsentPage() {
   const authorizationId = params.get('authorization_id') ?? params.get('auth_id') ?? '';
 
   const [details, setDetails] = useState<Details | null>(null);
+  // Gesetzt, wenn Supabase meldet, die Zustimmung liege bereits vor. Wir merken
+  // uns die Rücksprung-Adresse und warten auf eine aktive Bestätigung, statt
+  // sofort dorthin zu springen.
+  const [returnUrl, setReturnUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deciding, setDeciding] = useState<'approve' | 'deny' | null>(null);
+  const [switching, setSwitching] = useState(false);
+  const [switched, setSwitched] = useState(false);
 
   const load = useCallback(async () => {
     if (!authorizationId || !user) return;
     setLoading(true);
     setError(null);
+    // Reste des zuvor angemeldeten Kontos verwerfen, bevor neu geladen wird.
+    setDetails(null);
+    setReturnUrl(null);
     try {
       const { data, error: e } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
       if (e) throw e;
@@ -145,9 +221,9 @@ export default function ConsentPage() {
       if ('authorization_id' in data) {
         setDetails(data as Details);
       } else {
-        // Zustimmung liegt bereits vor — direkt zurück zum Client.
-        window.location.href = data.redirect_url;
-        return;
+        // Zustimmung liegt bereits vor. Adresse merken, nicht folgen — die
+        // Bestätigung holt sich der Nutzer weiter unten selbst ab.
+        setReturnUrl(data.redirect_url);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Die Anfrage konnte nicht geladen werden.');
@@ -176,6 +252,38 @@ export default function ConsentPage() {
     }
   }
 
+  // Bereits erteilte Zustimmung: der Nutzer bestätigt sie erneut, dann geht es
+  // zur gemerkten Adresse zurück.
+  function confirmReturn() {
+    if (!returnUrl) return;
+    setDeciding('approve');
+    window.location.href = returnUrl;
+  }
+
+  // Kontowechsel: nur die Sitzung dieses Browsers beenden. Bewusst
+  // scope: 'local' — ein globales Abmelden würde alle Sitzungen des Nutzers auf
+  // allen Geräten verwerfen, obwohl hier nur ein anderes Konto gemeint ist.
+  //
+  // Es wird NICHT navigiert. Dadurch bleibt die Adresse mitsamt allen
+  // OAuth-Parametern unverändert; sobald user auf null fällt, rendert diese
+  // Komponente das Login-Formular an derselben Stelle, und nach dem Login läuft
+  // load() erneut.
+  async function switchAccount() {
+    setSwitching(true);
+    setError(null);
+    try {
+      const { error: e } = await supabase.auth.signOut({ scope: 'local' });
+      if (e) throw e;
+      setDetails(null);
+      setReturnUrl(null);
+      setSwitched(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Die Sitzung konnte nicht beendet werden.');
+    } finally {
+      setSwitching(false);
+    }
+  }
+
   // ── Zustände ──────────────────────────────────────────────
 
   if (!authorizationId) {
@@ -196,7 +304,7 @@ export default function ConsentPage() {
   }
 
   if (!user) {
-    return <Shell><InlineLogin clientHint="Eine Anwendung" /></Shell>;
+    return <Shell><InlineLogin clientHint="Eine Anwendung" switched={switched} /></Shell>;
   }
 
   if (loading) {
@@ -208,7 +316,7 @@ export default function ConsentPage() {
     );
   }
 
-  if (error && !details) {
+  if (error && !details && !returnUrl) {
     return (
       <Shell>
         <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Anfrage nicht ladbar</h1>
@@ -218,18 +326,77 @@ export default function ConsentPage() {
           heraus, die den Zugriff anfragt.
         </p>
         <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">Meldung: {error}</p>
-        <button
-          onClick={load}
-          className="px-4 py-2 text-sm font-medium text-white rounded"
-          style={{ backgroundColor: ACCENT }}
-        >
-          Erneut versuchen
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={load}
+            className="px-4 py-2 text-sm font-medium text-white rounded"
+            style={{ backgroundColor: ACCENT }}
+          >
+            Erneut versuchen
+          </button>
+          <button
+            onClick={switchAccount}
+            disabled={switching}
+            className="px-4 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+          >
+            {switching ? 'Sitzung wird beendet…' : 'Anderes Konto verwenden'}
+          </button>
+        </div>
       </Shell>
     );
   }
 
   const clientName = details?.client?.name?.trim() || 'Eine unbekannte Anwendung';
+
+  // Massgeblich ist die E-Mail aus den Autorisierungsdetails: das ist das Konto,
+  // das der Server autorisieren wird. user.email ist nur die lokale Sitzung.
+  // Weichen beide ab, wird das im Kontoblock als Warnung sichtbar.
+  const serverEmail = details?.user?.email?.trim() || '';
+  const localEmail = user.email?.trim() || '';
+  const shownEmail = serverEmail || localEmail || 'Unbekanntes Konto';
+  const mismatch = serverEmail && localEmail && serverEmail !== localEmail ? localEmail : null;
+
+  const busy = deciding !== null || switching;
+
+  // ── Zustimmung liegt bereits vor ──────────────────────────
+  // Früher wurde hier sofort weitergeleitet. Genau das ist der Fall, in dem ein
+  // "Trennen" auf Claude-Seite die Browser-Sitzung stehen liess und der nächste
+  // Verbindungsversuch ungefragt durchlief.
+
+  if (returnUrl) {
+    return (
+      <Shell>
+        <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Erneut verbinden</h1>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+          Für diese Anwendung liegt bereits eine Freigabe vor. Prüfe das Konto und bestätige die
+          Verbindung.
+        </p>
+
+        <AccountBlock
+          email={shownEmail} mismatch={mismatch} busy={busy}
+          switching={switching} onSwitch={switchAccount}
+        />
+
+        {error && <p className="text-sm text-red-600 dark:text-red-400 mb-3">{error}</p>}
+
+        <button
+          onClick={confirmReturn}
+          disabled={busy}
+          className="w-full py-2.5 text-sm font-semibold text-white rounded disabled:opacity-50"
+          style={{ backgroundColor: ACCENT }}
+        >
+          {deciding === 'approve' ? 'Wird verbunden…' : 'Verbinden'}
+        </button>
+
+        <p className="text-xs text-gray-400 dark:text-gray-500 mt-4">
+          Du kannst die Freigabe jederzeit widerrufen. Jeder Zugriff wird unter
+          Einstellungen → KI-Zugriff protokolliert.
+        </p>
+      </Shell>
+    );
+  }
+
+  // ── Erstmalige Zustimmung ─────────────────────────────────
 
   return (
     <Shell>
@@ -240,6 +407,11 @@ export default function ConsentPage() {
         <strong className="text-gray-700 dark:text-gray-300">{clientName}</strong> möchte auf dein
         Finanzkonto zugreifen.
       </p>
+
+      <AccountBlock
+        email={shownEmail} mismatch={mismatch} busy={busy}
+        switching={switching} onSwitch={switchAccount}
+      />
 
       {/* Rechte */}
       <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700 mb-5">
@@ -271,10 +443,6 @@ export default function ConsentPage() {
 
       {/* Details */}
       <dl className="text-xs space-y-1.5 mb-6">
-        <div className="flex justify-between gap-3">
-          <dt className="text-gray-400 dark:text-gray-500 flex-shrink-0">Konto</dt>
-          <dd className="text-gray-600 dark:text-gray-300 truncate">{details?.user?.email ?? user.email}</dd>
-        </div>
         {details?.redirect_uri && (
           <div className="flex justify-between gap-3">
             <dt className="text-gray-400 dark:text-gray-500 flex-shrink-0">Rücksprung</dt>
@@ -294,7 +462,7 @@ export default function ConsentPage() {
       <div className="flex gap-3">
         <button
           onClick={() => decide('approve')}
-          disabled={deciding !== null}
+          disabled={busy}
           className="flex-1 py-2.5 text-sm font-semibold text-white rounded disabled:opacity-50"
           style={{ backgroundColor: ACCENT }}
         >
@@ -302,7 +470,7 @@ export default function ConsentPage() {
         </button>
         <button
           onClick={() => decide('deny')}
-          disabled={deciding !== null}
+          disabled={busy}
           className="flex-1 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
         >
           {deciding === 'deny' ? 'Wird abgelehnt…' : 'Ablehnen'}
