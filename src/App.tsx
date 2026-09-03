@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
+import ConsentPage from './pages/ConsentPage';
 import MainApp from './MainApp';
 
 // ProtectedRoute is removed — MainApp handles both guest and logged-in modes.
@@ -11,6 +12,7 @@ export default function App() {
     <Routes>
       <Route path="/login"  element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
+      <Route path="/oauth/consent" element={<ConsentPage />} />
       <Route path="/*"      element={<MainApp />} />
       <Route path="*"       element={<Navigate to="/" replace />} />
     </Routes>

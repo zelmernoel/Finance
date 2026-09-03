@@ -1,6 +1,30 @@
+# ── Seit dem Umzug auf Vercel (siehe vercel.json) NICHT MEHR IN BENUTZUNG ──
+# Diese Datei wird von Vercel ignoriert und schadet dort nicht. Bewusst nicht
+# gelöscht: falls jemals wieder auf Netlify gewechselt wird, ist die Config
+# hier noch vollständig vorhanden statt neu rekonstruiert werden zu müssen.
+# Der aktive Gegenpart ist vercel.json im selben Verzeichnis.
+
 [build]
   command = "npm run build"
   publish = "dist"
+
+# ── MCP-Server: schöne URL als Proxy vor die Supabase Edge Function ──
+# status = 200 macht daraus einen Proxy (Netlify ruft die Zieladresse selbst
+# auf und reicht die Antwort durch) statt eines 301/302-Redirects. Ein
+# echter Redirect würde vom MCP-Client sichtbar aufgelöst — Header wie
+# WWW-Authenticate zeigten dann auf die Supabase-URL statt auf die schöne.
+# Muss vor der SPA-Catchall-Regel stehen, sonst greift diese zuerst.
+[[redirects]]
+  from = "/mcp"
+  to = "https://yctzuacwsaoxkkgxgsjq.supabase.co/functions/v1/mcp"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/mcp/*"
+  to = "https://yctzuacwsaoxkkgxgsjq.supabase.co/functions/v1/mcp/:splat"
+  status = 200
+  force = true
 
 [[redirects]]
   from = "/*"

@@ -13,6 +13,10 @@ import { useChartTheme } from '../hooks/useChartTheme';
 import { loadCategoryColors, saveCategoryColors } from '../hooks/useCategoryColors';
 import { createSupabaseAdapter } from '../lib/supabaseAdapter';
 import { createLocalStorageAdapter } from '../lib/localStorageAdapter';
+import {
+  fetchActivityLog, formatLogTime, describeEntry, entityLabel, linksToTransaction,
+} from '../lib/activityLog';
+import type { ActivityLogEntry, ActivityActor } from '../types';
 
 interface Props {
   settings: Settings;
@@ -25,6 +29,8 @@ interface Props {
   onImportTransactions: (txs: Transaction[]) => Promise<void>;
   onResetAllTransactions: () => Promise<void>;
   onDeleteTransactionsByPeriod: (from: string, to: string) => Promise<void>;
+  /** Springt in die Transaktionsliste und filtert auf diese eine Buchung. */
+  onOpenTransaction: (txId: string) => void;
 }
 
 // ── small reusable pieces ────────────────────────────────────────────────────
@@ -87,13 +93,63 @@ function Btn({
 
 const inputCls = 'w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-[#4A6FA5]';
 
+/** Wert mit Kopieren-Button — kurzes Häkchen als Feedback statt Text. */
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // clipboard-API kann fehlen (z. B. unsicherer Kontext) — dann bleibt nur manuelles Markieren.
+    }
+  }
+
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+        {label}
+      </label>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 min-w-0 truncate border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-gray-50 dark:bg-gray-700/50 text-gray-900 dark:text-gray-100">
+          {value}
+        </code>
+        <button
+          type="button"
+          onClick={handleCopy}
+          title="In Zwischenablage kopieren"
+          className={`flex-shrink-0 p-2.5 border rounded transition-colors ${
+            copied
+              ? 'border-transparent text-white'
+              : 'border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+          }`}
+          style={copied ? { backgroundColor: ACCENT } : undefined}
+        >
+          {copied ? (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── main component ────────────────────────────────────────────────────────────
 
 export default function SettingsPage({
   settings, categories, transactions,
   onSaveSettings, onDeleteCategory, onAddCategory,
   onUpdateCategory, onImportTransactions, onResetAllTransactions,
-  onDeleteTransactionsByPeriod,
+  onDeleteTransactionsByPeriod, onOpenTransaction,
 }: Props) {
   const { user, signOut } = useAuth();
   const { theme, setTheme, accent, setAccent, palette, setPalette, sections, toggleSection, setAllSections } = useTheme();
@@ -216,6 +272,68 @@ export default function SettingsPage({
       setReconcileError(e instanceof Error ? e.message : 'Abgleich fehlgeschlagen.');
     } finally {
       setReconciling(false);
+    }
+  }
+
+  // ── KI-Zugriff ────────────────────────────────────────────────────────────
+  // show_ai_badges steuert ausschliesslich die Anzeige. transactions.source
+  // wird unabhängig davon immer geschrieben.
+  const [aiBadges, setAiBadges]         = useState(settings.showAiBadges !== false);
+  const [aiBadgesSaving, setAiBadgesSaving] = useState(false);
+  const [aiBadgesError, setAiBadgesError]   = useState<string | null>(null);
+
+  // mcp_allow_pot_creation entscheidet, ob Claude Sparttöpfe anlegen darf.
+  // Der Schalter wirkt nicht nur in der Oberfläche: die INSERT-Policy auf
+  // savings_pots prüft dieselbe Spalte.
+  const [allowPots, setAllowPots]             = useState(settings.mcpAllowPotCreation !== false);
+  const [allowPotsSaving, setAllowPotsSaving] = useState(false);
+  const [allowPotsError, setAllowPotsError]   = useState<string | null>(null);
+
+  const [activityLog, setActivityLog]               = useState<ActivityLogEntry[]>([]);
+  const [logLoading, setActivityLogLoading] = useState(false);
+  const [logError, setActivityLogError]     = useState<string | null>(null);
+  const [logFilter, setLogFilter]       = useState<'all' | ActivityActor>('all');
+
+  const loadActivityLog = useCallback(async () => {
+    if (!user) return;
+    setActivityLogLoading(true);
+    setActivityLogError(null);
+    try {
+      setActivityLog(await fetchActivityLog(50, logFilter === 'all' ? undefined : logFilter));
+    } catch (e) {
+      setActivityLogError(e instanceof Error ? e.message : 'Protokoll konnte nicht geladen werden.');
+    } finally {
+      setActivityLogLoading(false);
+    }
+  }, [user, logFilter]);
+
+  useEffect(() => { loadActivityLog(); }, [loadActivityLog]);
+
+  async function toggleAiBadges(next: boolean) {
+    setAiBadges(next);
+    setAiBadgesSaving(true);
+    setAiBadgesError(null);
+    try {
+      await onSaveSettings({ showAiBadges: next });
+    } catch (e) {
+      setAiBadges(!next); // zurückdrehen, damit die Anzeige nicht lügt
+      setAiBadgesError(e instanceof Error ? e.message : 'Einstellung konnte nicht gespeichert werden.');
+    } finally {
+      setAiBadgesSaving(false);
+    }
+  }
+
+  async function toggleAllowPots(next: boolean) {
+    setAllowPots(next);
+    setAllowPotsSaving(true);
+    setAllowPotsError(null);
+    try {
+      await onSaveSettings({ mcpAllowPotCreation: next });
+    } catch (e) {
+      setAllowPots(!next);
+      setAllowPotsError(e instanceof Error ? e.message : 'Einstellung konnte nicht gespeichert werden.');
+    } finally {
+      setAllowPotsSaving(false);
     }
   }
 
@@ -1244,6 +1362,209 @@ export default function SettingsPage({
         )}
       </Card>
 
+      {/* ── Mit Claude verbinden ────────────────────────────────────────── */}
+      <Card className="p-6">
+        <SectionLabel>Mit Claude verbinden</SectionLabel>
+
+        {!user ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Die Verbindung mit Claude setzt ein Konto voraus. Im Gast-Modus liegen die Daten nur auf
+            diesem Gerät und sind über keine Schnittstelle erreichbar.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
+              Claude kann sich über einen Connector mit deinem Konto verbinden: alle Daten lesen sowie
+              neue Transaktionen, Notizen und Sparttöpfe anlegen. Ändern oder löschen kann Claude
+              nichts.
+            </p>
+
+            <div className="space-y-4">
+              <CopyField label="Name" value="FinanzTracker" />
+              <CopyField label="URL" value="https://financenoel.vercel.app/mcp" />
+            </div>
+
+            <p className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-widest mt-6 mb-3">
+              Einrichtung
+            </p>
+            <ol className="space-y-3">
+              {[
+                <>In Claude: <strong className="text-gray-700 dark:text-gray-300">Einstellungen → Connectors → Benutzerdefinierten Connector hinzufügen</strong></>,
+                <>Namen und URL von oben einfügen</>,
+                <>Bei „OAuth-Client" die Option <strong className="text-gray-700 dark:text-gray-300">„Keine Client-ID – automatisch eine registrieren"</strong> wählen</>,
+                <>Mit dem eigenen FinanzTracker-Konto anmelden und bestätigen</>,
+              ].map((step, i) => (
+                <li key={i} className="flex items-start gap-3">
+                  <span
+                    className="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-semibold text-white mt-0.5"
+                    style={{ backgroundColor: ACCENT }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="text-sm text-gray-600 dark:text-gray-300">{step}</span>
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
+      </Card>
+
+      {/* ── KI-Zugriff ───────────────────────────────────────────── */}
+      <Card className="p-6">
+        <SectionLabel>KI-Zugriff</SectionLabel>
+
+        {!user ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Der KI-Zugriff setzt ein Konto voraus. Im Gast-Modus liegen die Daten nur auf diesem
+            Gerät, und es gibt keine Schnittstelle, über die Claude sie lesen könnte.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Claude kann über den verbundenen Zugang <strong className="text-gray-700 dark:text-gray-300">alle
+              Daten lesen</strong> sowie <strong className="text-gray-700 dark:text-gray-300">Transaktionen,
+              Notizen und Sparttöpfe anlegen</strong>. Ändern und Löschen kann Claude nichts — das ist
+              in der Datenbank gesperrt, nicht bloss in der Oberfläche.
+            </p>
+
+            {/* Badge-Schalter */}
+            <div className="flex items-start justify-between gap-4 py-3 border-t border-gray-100 dark:border-gray-700">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">KI-Markierung anzeigen</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                  Zeigt bei Buchungen und Notizen von Claude ein „KI“-Kennzeichen.
+                  Die Herkunft wird unabhängig davon immer gespeichert.
+                </p>
+              </div>
+              <ToggleSwitch
+                on={aiBadges}
+                disabled={aiBadgesSaving}
+                onChange={toggleAiBadges}
+                label="KI-Markierung anzeigen"
+              />
+            </div>
+            {aiBadgesError && (
+              <p className="text-sm text-red-600 dark:text-red-400 mb-2">{aiBadgesError}</p>
+            )}
+
+            {/* Spartopf-Schalter */}
+            <div className="flex items-start justify-between gap-4 py-3 border-t border-gray-100 dark:border-gray-700">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Sparttöpfe anlegen</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                  Erlaubt Claude, neue Sparttöpfe anzulegen. Bedenke die Tragweite: ein Topf mit
+                  Verteilungsanteil verändert, was mit <strong className="text-gray-500 dark:text-gray-400">künftigen
+                  Einnahmen</strong> passiert — jede neue Einnahme wird dann automatisch anteilig verteilt.
+                  Bestehende Töpfe kann Claude weder ändern noch löschen.
+                </p>
+              </div>
+              <ToggleSwitch
+                on={allowPots}
+                disabled={allowPotsSaving}
+                onChange={toggleAllowPots}
+                label="Sparttöpfe anlegen"
+              />
+            </div>
+            {allowPotsError && (
+              <p className="text-sm text-red-600 dark:text-red-400 mb-2">{allowPotsError}</p>
+            )}
+
+            {/* Protokoll */}
+            <div className="flex items-center justify-between gap-3 pt-4 mt-1 border-t border-gray-100 dark:border-gray-700 flex-wrap">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Änderungsprotokoll</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                  Die letzten 50 Änderungen — auch die aus der App, nicht nur die von Claude.
+                  Einträge können weder geändert noch gelöscht werden.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex rounded border border-gray-200 dark:border-gray-600 overflow-hidden">
+                  {([
+                    { key: 'all' as const, label: 'Alle' },
+                    { key: 'mcp' as const, label: 'Nur KI' },
+                  ]).map(({ key, label }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setLogFilter(key)}
+                      className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                        logFilter === key
+                          ? 'text-white'
+                          : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      }`}
+                      style={logFilter === key ? { backgroundColor: ACCENT } : undefined}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <Btn onClick={loadActivityLog} disabled={logLoading}>
+                  {logLoading ? '…' : 'Aktualisieren'}
+                </Btn>
+              </div>
+            </div>
+
+            {logError && (
+              <p className="text-sm text-red-600 dark:text-red-400 mt-3">{logError}</p>
+            )}
+
+            {!logError && !logLoading && activityLog.length === 0 && (
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
+                {logFilter === 'mcp'
+                  ? 'Noch keine Zugriffe von Claude protokolliert.'
+                  : 'Noch nichts protokolliert.'}
+              </p>
+            )}
+
+            {activityLog.length > 0 && (
+              <ul className="mt-3 divide-y divide-gray-100 dark:divide-gray-700 max-h-96 overflow-y-auto">
+                {activityLog.map(e => (
+                  <li key={e.id} className="py-2.5 flex items-start gap-3">
+                    <span
+                      className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        e.status === 'error' ? 'bg-red-500' : 'bg-gray-300 dark:bg-gray-600'
+                      }`}
+                      title={e.status === 'error' ? 'Fehlgeschlagen' : 'Erfolgreich'}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-gray-900 dark:text-gray-100 flex items-center gap-1.5 flex-wrap">
+                        <span
+                          className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide bg-gray-100 dark:bg-gray-700"
+                          style={e.actor === 'mcp' ? { color: ACCENT } : undefined}
+                          title={e.actor === 'mcp' ? (e.clientLabel ?? 'Über den KI-Zugang') : 'In der App'}
+                        >
+                          {e.actor === 'mcp' ? 'KI' : 'App'}
+                        </span>
+                        <span className="font-medium">{entityLabel(e.entity)}</span>
+                        <span className="text-gray-400 dark:text-gray-500">· {formatLogTime(e.createdAt)}</span>
+                      </p>
+                      <p className={`text-xs mt-0.5 break-words ${
+                        e.status === 'error'
+                          ? 'text-red-600 dark:text-red-400'
+                          : 'text-gray-500 dark:text-gray-400'
+                      }`}>
+                        {describeEntry(e)}
+                      </p>
+                      {linksToTransaction(e) && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenTransaction(e.entityId!)}
+                          className="text-xs mt-0.5 hover:underline underline-offset-2"
+                          style={{ color: ACCENT }}
+                        >
+                          Buchung anzeigen →
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </Card>
+
       {/* ── Über ────────────────────────────────────────────────────────── */}
       <Card className="p-6">
         <SectionLabel>Über diese App</SectionLabel>
@@ -1257,6 +1578,37 @@ export default function SettingsPage({
         </div>
       </Card>
     </div>
+  );
+}
+
+/** Ein/Aus-Schalter im Stil der App. */
+function ToggleSwitch({
+  on, disabled, onChange, label,
+}: {
+  on: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!on)}
+      className={`relative w-11 h-6 rounded-full flex-shrink-0 transition-colors disabled:opacity-50 ${
+        on ? '' : 'bg-gray-200 dark:bg-gray-600'
+      }`}
+      style={on ? { backgroundColor: ACCENT } : undefined}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+          on ? 'translate-x-5' : ''
+        }`}
+      />
+    </button>
   );
 }
 

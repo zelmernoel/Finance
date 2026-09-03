@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { Transaction, Category, Settings, Tab } from './types';
 import { useAuth } from './context/AuthContext';
 import { useBudget } from './context/BudgetContext';
@@ -30,6 +31,7 @@ export default function MainApp() {
   const { user } = useAuth();
   const { activeBudgetId, activeBudget, loadingBudgets } = useBudget();
   const { showToast } = useToast();
+  const [, setSearchParams] = useSearchParams();
 
   // ── Storage adapter scoped to active budget ───────────────────────────────
   const storage = useStorage(activeBudgetId);
@@ -191,6 +193,12 @@ export default function MainApp() {
     setTx(prev => prev.filter(t => !ids.includes(t.id)));
   }
 
+  /** Aus dem KI-Protokoll heraus eine einzelne Buchung öffnen. */
+  function handleOpenTransaction(txId: string) {
+    setSearchParams({ q: txId });
+    setTab('transactions');
+  }
+
   // ── Migration: import guest data into Supabase ────────────────────────────
   async function handleMigrateImport() {
     if (!user || !activeBudgetId) return;
@@ -280,6 +288,7 @@ export default function MainApp() {
             onNavigateToNew={() => setTab('new')}
             budgetName={activeBudget?.name ?? 'Budget'}
             userName={settings.name}
+            showAiBadges={settings.showAiBadges !== false}
           />
         )}
         {tab === 'new' && (
@@ -324,6 +333,7 @@ export default function MainApp() {
             onImportTransactions={handleImportTransactions}
             onResetAllTransactions={handleResetAllTransactions}
             onDeleteTransactionsByPeriod={handleDeleteTransactionsByPeriod}
+            onOpenTransaction={handleOpenTransaction}
           />
         )}
         </div>

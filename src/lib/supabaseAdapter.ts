@@ -19,6 +19,7 @@ function rowToTx(row: Record<string, unknown>): Transaction {
     category:    String(row.category ?? ''),
     description: String(row.description ?? ''),
     note:        row.note != null ? String(row.note) : '',
+    source:      row.source === 'mcp' ? 'mcp' : 'app',
   };
 }
 
@@ -37,6 +38,9 @@ function rowToSettings(row: Record<string, unknown>): Settings {
     startingBalance: toNum(row.starting_balance),
     name:            String(row.name ?? ''),
     monthStart:      row.month_start != null ? toNum(row.month_start) : undefined,
+    showAiBadges:    row.show_ai_badges != null ? Boolean(row.show_ai_badges) : true,
+    mcpAllowPotCreation:
+      row.mcp_allow_pot_creation != null ? Boolean(row.mcp_allow_pot_creation) : true,
   };
 }
 
@@ -308,6 +312,9 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       if (patch.startingBalance !== undefined) dbPatch.starting_balance = patch.startingBalance;
       if (patch.name !== undefined)            dbPatch.name             = patch.name;
       if (patch.monthStart  !== undefined)     dbPatch.month_start      = patch.monthStart;
+      if (patch.showAiBadges !== undefined)    dbPatch.show_ai_badges   = patch.showAiBadges;
+      if (patch.mcpAllowPotCreation !== undefined)
+        dbPatch.mcp_allow_pot_creation = patch.mcpAllowPotCreation;
       const { data, error } = await supabase.from('settings')
         .upsert(dbPatch, { onConflict: 'user_id,budget_id' }).select().single();
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }

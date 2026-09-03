@@ -1,5 +1,6 @@
 import {
-  useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent,
+  Fragment, useCallback, useEffect, useMemo, useRef, useState,
+  type ChangeEvent, type FormEvent,
 } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { Category, Transaction } from '../types';
@@ -11,6 +12,9 @@ import { printTransactions } from '../lib/printTransactions';
 import {
   getReceipt, saveReceipt, deleteReceipt, hasReceipt, fileToDataUrl, printReceipt,
 } from '../lib/receiptStorage';
+import type { TransactionNote } from '../types';
+import { fetchNotes, fetchNoteCounts, addNote, formatNoteTime } from '../lib/transactionNotes';
+import { useAuth } from '../context/AuthContext';
 
 interface Props {
   transactions: Transaction[];
@@ -20,6 +24,8 @@ interface Props {
   onNavigateToNew: () => void;
   budgetName: string;
   userName: string;
+  /** settings.show_ai_badges — blendet die KI-Markierung aus, ohne sie zu löschen. */
+  showAiBadges: boolean;
 }
 
 type SortKey = 'date' | 'amount';
@@ -56,12 +62,24 @@ function useDebounce<T>(value: T, ms: number): T {
 
 export default function Transactions({
   transactions, categories, onDelete, onUpdate, onNavigateToNew, budgetName, userName,
+  showAiBadges,
 }: Props) {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [search, setSearchRaw]      = useState(searchParams.get('q') ?? '');
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
   const [filterCategory, setFilterCat] = useState('');
+  const [onlyAi, setOnlyAi]         = useState(false);
+
+  // ── Notizen ───────────────────────────────────────────────────────────────
+  // transaction_notes liegt in Supabase; im Gast-Modus gibt es sie nicht.
+  const { user } = useAuth();
+  const [notesFor, setNotesFor]     = useState<string | null>(null);
+  const [notes, setNotes]           = useState<Record<string, TransactionNote[] | 'loading'>>({});
+  const [noteCounts, setNoteCounts] = useState<Record<string, number>>({});
+  const [noteDraft, setNoteDraft]   = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteError, setNoteError]   = useState<string | null>(null);
   const [filterFrom, setFilterFrom] = useState('');
   const [filterTo, setFilterTo]     = useState('');
   const [sortKey, setSortKey]       = useState<SortKey>('date');
@@ -132,6 +150,53 @@ export default function Transactions({
     setReceiptModal(null);
   }
 
+  // Notizanzahl je Transaktion — eine Abfrage für die ganze Liste.
+  useEffect(() => {
+    if (!user || transactions.length === 0) { setNoteCounts({}); return; }
+    let abgebrochen = false;
+    fetchNoteCounts(transactions.map(t => t.id))
+      .then(counts => { if (!abgebrochen) setNoteCounts(counts); })
+      .catch(() => { if (!abgebrochen) setNoteCounts({}); });
+    return () => { abgebrochen = true; };
+  }, [user, transactions]);
+
+  async function toggleNotes(txId: string) {
+    if (notesFor === txId) { setNotesFor(null); return; }
+    setNotesFor(txId);
+    setNoteDraft('');
+    setNoteError(null);
+    if (!notes[txId]) {
+      setNotes(prev => ({ ...prev, [txId]: 'loading' }));
+      try {
+        const geladen = await fetchNotes(txId);
+        setNotes(prev => ({ ...prev, [txId]: geladen }));
+      } catch (e) {
+        setNotes(prev => ({ ...prev, [txId]: [] }));
+        setNoteError(e instanceof Error ? e.message : 'Notizen konnten nicht geladen werden.');
+      }
+    }
+  }
+
+  async function handleAddNote(txId: string) {
+    if (!user || !noteDraft.trim()) return;
+    setNoteSaving(true);
+    setNoteError(null);
+    try {
+      const created = await addNote(user.id, txId, noteDraft);
+      setNotes(prev => {
+        const vorhanden = prev[txId];
+        const liste = Array.isArray(vorhanden) ? vorhanden : [];
+        return { ...prev, [txId]: [...liste, created] };
+      });
+      setNoteCounts(prev => ({ ...prev, [txId]: (prev[txId] ?? 0) + 1 }));
+      setNoteDraft('');
+    } catch (e) {
+      setNoteError(e instanceof Error ? e.message : 'Notiz konnte nicht gespeichert werden.');
+    } finally {
+      setNoteSaving(false);
+    }
+  }
+
   const debouncedSearch = useDebounce(search, 300);
 
   function setSearch(v: string) { setSearchRaw(v); }
@@ -164,6 +229,11 @@ export default function Transactions({
     return () => document.removeEventListener('mousedown', close);
   }, [exportOpen]);
 
+  const aiCount = useMemo(
+    () => transactions.filter(t => t.source === 'mcp').length,
+    [transactions],
+  );
+
   const txCategoryNames = useMemo(() => {
     const set = new Set(transactions.map(t => t.category));
     return [...set].sort();
@@ -173,6 +243,7 @@ export default function Transactions({
     let result = transactions;
     if (filterType !== 'all') result = result.filter(t => t.type === filterType);
     if (filterCategory)       result = result.filter(t => t.category === filterCategory);
+    if (onlyAi)               result = result.filter(t => t.source === 'mcp');
     if (filterFrom)           result = result.filter(t => t.date >= filterFrom);
     if (filterTo)             result = result.filter(t => t.date <= filterTo);
     if (debouncedSearch.trim()) {
@@ -181,7 +252,9 @@ export default function Transactions({
         t.description.toLowerCase().includes(q) ||
         t.category.toLowerCase().includes(q) ||
         String(t.amount).includes(q) ||
-        (t.note ?? '').toLowerCase().includes(q)
+        (t.note ?? '').toLowerCase().includes(q) ||
+        // Erlaubt den Sprung aus dem KI-Protokoll direkt auf eine Buchung.
+        t.id.toLowerCase() === q
       );
     }
     return [...result].sort((a, b) => {
@@ -189,7 +262,7 @@ export default function Transactions({
       if (sortKey === 'date') return mul * a.date.localeCompare(b.date);
       return mul * (a.amount - b.amount);
     });
-  }, [transactions, filterType, filterCategory, filterFrom, filterTo, debouncedSearch, sortKey, sortDir]);
+  }, [transactions, filterType, filterCategory, filterFrom, filterTo, debouncedSearch, onlyAi, sortKey, sortDir]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -261,7 +334,25 @@ export default function Transactions({
             {filtered.length} Transaktion{filtered.length !== 1 ? 'en' : ''} gefunden
             {debouncedSearch && <span className="ml-1 text-gray-400 dark:text-gray-500">für „{debouncedSearch}"</span>}
           </p>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            {/* Nur KI-Einträge */}
+            <button
+              type="button"
+              onClick={() => setOnlyAi(v => !v)}
+              aria-pressed={onlyAi}
+              title="Nur Buchungen anzeigen, die Claude über den MCP-Zugriff angelegt hat"
+              className={`text-xs px-3 py-1.5 border rounded transition-colors ${
+                onlyAi
+                  ? 'border-transparent text-white'
+                  : 'border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+              }`}
+              style={onlyAi ? { backgroundColor: ACCENT } : undefined}
+            >
+              Nur KI-Einträge
+              <span className={onlyAi ? 'ml-1 opacity-80' : 'ml-1 text-gray-400 dark:text-gray-500'}>
+                {aiCount}
+              </span>
+            </button>
             {/* Export dropdown */}
             <div ref={exportRef} className="relative">
               <button
@@ -317,6 +408,7 @@ export default function Transactions({
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                           <Highlight text={t.description} query={debouncedSearch} />
+                          {showAiBadges && t.source === 'mcp' && <AiBadge />}
                         </p>
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                           {formatDate(t.date)}
@@ -326,6 +418,13 @@ export default function Transactions({
                         {t.note && t.note.split('\n').filter(Boolean).map((n, i) => (
                           <p key={i} className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{n}</p>
                         ))}
+                        {user && (
+                          <NotesToggle
+                            count={noteCounts[t.id] ?? 0}
+                            open={notesFor === t.id}
+                            onClick={() => toggleNotes(t.id)}
+                          />
+                        )}
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <span className="text-sm font-semibold whitespace-nowrap mr-1">
@@ -367,6 +466,16 @@ export default function Transactions({
                         )}
                       </div>
                     </div>
+                    {user && notesFor === t.id && (
+                      <NotesPanel
+                        notes={notes[t.id]}
+                        draft={noteDraft}
+                        onDraft={setNoteDraft}
+                        onSubmit={() => handleAddNote(t.id)}
+                        saving={noteSaving}
+                        error={noteError}
+                      />
+                    )}
                   </div>
                 );
               })}
@@ -396,12 +505,14 @@ export default function Transactions({
                   {filtered.map(t => {
                     const hasImg = hasReceipt(t.id);
                     return (
-                      <tr key={t.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                      <Fragment key={t.id}>
+                      <tr className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatDate(t.date)}</td>
                         <td className="px-4 py-3">
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300">
                             {t.type === 'income' ? 'Einnahme' : 'Ausgabe'}
                           </span>
+                          {showAiBadges && t.source === 'mcp' && <AiBadge />}
                         </td>
                         <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
                           <Highlight text={t.category} query={debouncedSearch} />
@@ -411,6 +522,13 @@ export default function Transactions({
                           {t.note && t.note.split('\n').filter(Boolean).map((n, i) => (
                             <span key={i} className="block text-xs text-gray-400 dark:text-gray-500">{n}</span>
                           ))}
+                          {user && (
+                            <NotesToggle
+                              count={noteCounts[t.id] ?? 0}
+                              open={notesFor === t.id}
+                              onClick={() => toggleNotes(t.id)}
+                            />
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right font-medium whitespace-nowrap">
                           <span className="text-gray-900 dark:text-gray-100"
@@ -456,6 +574,21 @@ export default function Transactions({
                           </div>
                         </td>
                       </tr>
+                      {user && notesFor === t.id && (
+                        <tr key={`${t.id}-notes`} className="border-b border-gray-100 dark:border-gray-700">
+                          <td colSpan={7} className="px-4 pb-3 pt-0 bg-gray-50/60 dark:bg-gray-700/20">
+                            <NotesPanel
+                              notes={notes[t.id]}
+                              draft={noteDraft}
+                              onDraft={setNoteDraft}
+                              onSubmit={() => handleAddNote(t.id)}
+                              saving={noteSaving}
+                              error={noteError}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </tbody>
@@ -657,6 +790,108 @@ export default function Transactions({
         </>
       )}
     </div>
+  );
+}
+
+/** Aufklapper für die Notizen einer Transaktion. */
+function NotesToggle({
+  count, open, onClick,
+}: { count: number; open: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mt-1 flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+    >
+      <svg className={`w-3 h-3 transition-transform ${open ? 'rotate-90' : ''}`}
+        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+      </svg>
+      {count === 0 ? 'Notiz anhängen' : `${count} Notiz${count !== 1 ? 'en' : ''}`}
+    </button>
+  );
+}
+
+/**
+ * Notizen einer Transaktion: chronologisch, mit Zeitstempel und Herkunft,
+ * darunter ein Feld zum Anhängen. Notizen lassen sich nicht ändern oder
+ * löschen — deshalb gibt es hier bewusst keine Bearbeiten-Schaltfläche.
+ */
+function NotesPanel({
+  notes, draft, onDraft, onSubmit, saving, error,
+}: {
+  notes: TransactionNote[] | 'loading' | undefined;
+  draft: string;
+  onDraft: (v: string) => void;
+  onSubmit: () => void;
+  saving: boolean;
+  error: string | null;
+}) {
+  const liste = Array.isArray(notes) ? notes : [];
+  return (
+    <div className="slide-in-up mt-1 pl-4 border-l-2 border-gray-200 dark:border-gray-600">
+      {notes === 'loading' ? (
+        <p className="text-xs text-gray-400 dark:text-gray-500 py-2">Notizen werden geladen…</p>
+      ) : liste.length === 0 ? (
+        <p className="text-xs text-gray-400 dark:text-gray-500 py-2">Noch keine Notizen.</p>
+      ) : (
+        <ul className="space-y-2 py-2">
+          {liste.map(n => (
+            <li key={n.id} className="text-xs">
+              <div className="flex items-center gap-2 text-gray-400 dark:text-gray-500">
+                <span>{formatNoteTime(n.createdAt)}</span>
+                <span
+                  className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide bg-gray-100 dark:bg-gray-700"
+                  style={n.author === 'mcp' ? { color: ACCENT } : undefined}
+                >
+                  {n.author === 'mcp' ? 'KI' : 'App'}
+                </span>
+              </div>
+              <p className="text-gray-700 dark:text-gray-300 mt-0.5 whitespace-pre-wrap break-words">{n.body}</p>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex gap-2 items-start py-2">
+        <textarea
+          value={draft}
+          onChange={e => onDraft(e.target.value)}
+          rows={2}
+          placeholder="Notiz anhängen…"
+          className="flex-1 border border-gray-200 dark:border-gray-600 rounded px-2 py-1.5 text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-[#4A6FA5] resize-y"
+        />
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={saving || !draft.trim()}
+          className="px-3 py-1.5 text-xs font-medium text-white rounded disabled:opacity-40 whitespace-nowrap"
+          style={{ backgroundColor: ACCENT }}
+        >
+          {saving ? '…' : 'Anhängen'}
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-600 dark:text-red-400 pb-2">{error}</p>}
+      <p className="text-[11px] text-gray-400 dark:text-gray-500 pb-2">
+        Notizen bleiben unverändert erhalten — sie lassen sich nicht bearbeiten oder löschen.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Markiert Buchungen mit transactions.source = 'mcp'. Bewusst im Stil der
+ * vorhandenen Typ-Pille: neutraler Grund, Akzentfarbe nur als Schrift.
+ */
+function AiBadge() {
+  return (
+    <span
+      title="Von Claude über den MCP-Zugriff angelegt"
+      className="inline-flex items-center ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wide align-middle bg-gray-100 dark:bg-gray-700"
+      style={{ color: ACCENT }}
+    >
+      KI
+    </span>
   );
 }
 

@@ -1,0 +1,28 @@
+# ============================================================
+# Supabase CLI — Projektkonfiguration
+#
+# Diese Datei gab es bisher nicht; sie wird nur für die Edge
+# Function gebraucht. Für den reinen Dashboard-Betrieb (SQL im
+# Editor ausführen, Function über die CLI deployen) reicht sie so.
+#
+# project_id ist ein lokaler Bezeichner. Beim Verknüpfen mit dem
+# echten Projekt zählt der Ref aus `supabase link --project-ref …`,
+# nicht dieser Wert.
+# ============================================================
+
+project_id = "finanztracker"
+
+# ── MCP-Server ──────────────────────────────────────────────
+# verify_jwt = false, weil die Function das Token SELBST gegen den
+# JWKS-Endpunkt prüft (siehe verifyToken in functions/mcp/index.ts).
+#
+# Das ist hier notwendig und nicht nachlässig: die eingebaute
+# Prüfung würde anonyme Aufrufe des Metadaten-Endpunkts
+# /.well-known/oauth-protected-resource blockieren, den MCP-Clients
+# laut RFC 9728 ohne Token abrufen müssen, um überhaupt zu
+# erfahren, wo sie sich anmelden sollen.
+#
+# Jeder andere Pfad als dieser Metadaten-Endpunkt beantwortet
+# Anfragen ohne gültiges Token mit HTTP 401.
+[functions.mcp]
+verify_jwt = false

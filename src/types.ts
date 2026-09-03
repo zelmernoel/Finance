@@ -8,6 +8,12 @@ export interface Transaction {
   category: string;
   description: string;
   note?: string;
+  /**
+   * Herkunft der Buchung (transactions.source).
+   * 'app' = in der Oberfläche erfasst, 'mcp' = von Claude über den
+   * MCP-Server angelegt. Im Gast-Modus nicht gesetzt.
+   */
+  source?: 'app' | 'mcp';
 }
 
 export interface Category {
@@ -22,6 +28,10 @@ export interface Settings {
   startingBalance: number;
   name: string;
   monthStart?: number; // day of month (1–28) when the billing period begins
+  /** Steuert nur die Anzeige der KI-Markierung; source wird immer geschrieben. */
+  showAiBadges?: boolean;
+  /** Darf Claude Sparttöpfe anlegen? Wird zusätzlich per RLS erzwungen. */
+  mcpAllowPotCreation?: boolean;
 }
 
 // ── Budget (workspace) ────────────────────────────────────────────────────────
@@ -79,6 +89,40 @@ export interface RecurringTransaction {
   nextDue: string;       // ISO — updated after each execution
   lastExecuted?: string; // ISO
   isActive: boolean;
+}
+
+// ── Änderungsprotokoll (activity_log) ─────────────────────────────────────────
+// Append-only. Erfasst JEDE Änderung an Transaktionen, Notizen und Sparttöpfen —
+// aus der App wie von Claude. Nur für eingeloggte Nutzer; im Gast-Modus liegen
+// die Daten lokal und es gibt weder MCP-Zugriff noch Protokoll.
+
+export type ActivityActor = 'app' | 'mcp';
+export type ActivityAction = 'insert' | 'update' | 'delete' | 'read';
+
+export interface ActivityLogEntry {
+  id: string;
+  budgetId: string | null;
+  createdAt: string;
+  actor: ActivityActor;
+  clientLabel?: string;
+  entity: string;
+  entityId?: string;
+  action: ActivityAction;
+  tool?: string;
+  status: 'ok' | 'error';
+  errorMessage?: string;
+}
+
+// ── Notizen zu einer Transaktion (transaction_notes) ──────────────────────────
+// Unveränderlich: nur anhängen. Getrennt vom Feld Transaction.note, das
+// unverändert seine bisherige Funktion behält.
+
+export interface TransactionNote {
+  id: string;
+  transactionId: string;
+  createdAt: string;
+  author: ActivityActor;
+  body: string;
 }
 
 // ── Navigation ────────────────────────────────────────────────────────────────
