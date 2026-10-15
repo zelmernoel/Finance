@@ -4,7 +4,13 @@ export interface Transaction {
   id: string;
   date: string;           // ISO date "YYYY-MM-DD"
   type: 'income' | 'expense';
+  /** Brutto. Zählt zum Kontostand, enthält die Steuer. */
   amount: number;
+  /**
+   * Im Brutto enthaltene Steuer (0 = keine). Netto = amount − taxAmount.
+   * Wird vom DB-Trigger in den Steuertopf gebucht: Einnahme +, Ausgabe −.
+   */
+  taxAmount?: number;
   category: string;
   description: string;
   note?: string;
@@ -21,6 +27,10 @@ export interface Category {
   name: string;
   type: 'income' | 'expense';
   monthlyBudget?: number; // optional per-category spending limit
+  /** Vorbelegung im Wizard: Dauerauftrag mit dieser Frequenz vorschlagen. */
+  defaultFrequency?: Frequency;
+  /** Vorbelegung im Wizard: enthaltene Steuer mit diesem Satz vorschlagen (z. B. 19). */
+  defaultTaxRate?: number;
 }
 
 export interface Settings {
@@ -51,11 +61,18 @@ export interface Budget {
 // Nur für eingeloggte Nutzer. Verteilung/Rückabwicklung laufen serverseitig
 // über DB-Trigger (siehe supabase/savings-pots.sql).
 
+/**
+ * 'manual' = vom Nutzer angelegt, prozentual aus dem Netto jeder Einnahme befüllt.
+ * 'tax'    = Steuertopf, entsteht automatisch, exakt aus transactions.taxAmount.
+ */
+export type PotKind = 'manual' | 'tax';
+
 export interface SavingsPot {
   id: string;
   budgetId: string;
   name: string;
-  allocationPercent: number;   // 0–100
+  kind: PotKind;
+  allocationPercent: number;   // 0–100, beim Steuertopf immer 0
   targetAmount?: number;       // optionales Sparziel
   currentAmount: number;       // trigger-gepflegt (Summe der Zuweisungen)
   color: string;               // hex
@@ -68,7 +85,9 @@ export interface SavingsPot {
 export interface PotAllocation {
   id: string;
   potId: string;
-  incomeTransactionId: string;
+  transactionId: string;
+  /** 'percent' = Anteil einer Einnahme, 'tax' = Steuer (negativ = Vorsteuer). */
+  kind: 'percent' | 'tax';
   amount: number;
   createdAt: string;
 }
@@ -81,6 +100,8 @@ export interface RecurringTransaction {
   id: string;
   budgetId: string;
   amount: number;
+  /** Wird bei jeder Ausführung in die Buchung übernommen. */
+  taxAmount?: number;
   type: 'income' | 'expense';
   category: string;
   description: string;

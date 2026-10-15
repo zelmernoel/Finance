@@ -1,7 +1,7 @@
 import React, { useMemo, useEffect, useCallback } from 'react';
 import { useRef, useState, type FormEvent, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
-import type { Category, Settings, Transaction } from '../types';
+import type { Budget, Category, Frequency, Settings, Transaction } from '../types';
 import Card from '../components/Card';
 import { ACCENT, formatEuro, downloadCSV, downloadJSON, parseImportCSV, computeBalance, todayISO } from '../utils';
 import { exportTransactionsPDF } from '../lib/exportPDF';
@@ -23,8 +23,10 @@ interface Props {
   settings: Settings;
   categories: Category[];
   transactions: Transaction[];
+  /** Nur im Firmenbereich lässt sich je Kategorie ein Steuersatz vorbelegen. */
+  budgetType: Budget['type'];
   onSaveSettings: (s: Partial<Omit<Settings, 'id'>>) => Promise<void>;
-  onUpdateCategory: (id: string, patch: { monthlyBudget?: number }) => Promise<void>;
+  onUpdateCategory: (id: string, patch: Partial<Omit<Category, 'id' | 'type'>>) => Promise<void>;
   onDeleteCategory: (id: string) => Promise<void>;
   onAddCategory: (name: string, type: 'income' | 'expense') => Promise<void>;
   onImportTransactions: (txs: Transaction[]) => Promise<void>;
@@ -95,8 +97,21 @@ const inputCls = 'w-full border border-gray-200 dark:border-gray-600 rounded px-
 
 // ── main component ────────────────────────────────────────────────────────────
 
+const FREQ_OPTIONS: { value: Frequency | ''; label: string }[] = [
+  { value: '', label: 'Kein Dauerauftrag' },
+  { value: 'daily', label: 'Täglich' },
+  { value: 'weekly', label: 'Wöchentlich' },
+  { value: 'monthly', label: 'Monatlich' },
+  { value: 'yearly', label: 'Jährlich' },
+];
+const TAX_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Keine Steuer' },
+  { value: '19', label: '19 % enthalten' },
+  { value: '7', label: '7 % enthalten' },
+];
+
 export default function SettingsPage({
-  settings, categories, transactions,
+  settings, categories, transactions, budgetType,
   onSaveSettings, onDeleteCategory, onAddCategory,
   onUpdateCategory, onImportTransactions, onResetAllTransactions,
   onDeleteTransactionsByPeriod,
@@ -281,6 +296,8 @@ export default function SettingsPage({
     () => loadCategoryColors(activeBudgetId)
   );
   const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
+  const [defaultsFor, setDefaultsFor]       = useState<string | null>(null);
+  const isBusiness = budgetType === 'business';
 
   function setCatColor(id: string, color: string | null) {
     const next = { ...catColorMap };
@@ -921,7 +938,7 @@ export default function SettingsPage({
           </p>
         </AccordionSection>
 
-        <AccordionSection title="Kategorien" subtitle="Anlegen, umsortieren, Farben und Monatsbudgets">
+        <AccordionSection title="Kategorien" subtitle="Anlegen, umsortieren, Farben, Monatsbudgets und Vorbelegungen">
 
           {/* Tabs */}
           <div className="flex rounded border border-gray-200 dark:border-gray-600 overflow-hidden mb-5">
@@ -1005,7 +1022,26 @@ export default function SettingsPage({
                     ? { backgroundColor: catColorMap[c.id] }
                     : { border: '1.5px dashed', borderColor: chartTheme.tick }}
                 />
-                <span className="text-sm text-gray-800 dark:text-gray-200 flex-1">{c.name}</span>
+                <span className="text-sm text-gray-800 dark:text-gray-200 flex-1 min-w-0">
+                  <span className="block truncate">{c.name}</span>
+                  {(c.defaultFrequency || (isBusiness && c.defaultTaxRate)) && (
+                    <span className="block text-[11px] text-gray-400 dark:text-gray-500 truncate">
+                      {[
+                        c.defaultFrequency ? FREQ_OPTIONS.find(o => o.value === c.defaultFrequency)?.label : null,
+                        isBusiness && c.defaultTaxRate ? `${c.defaultTaxRate} % USt` : null,
+                      ].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDefaultsFor(defaultsFor === c.id ? null : c.id)}
+                  title="Vorbelegung im Buchungs-Wizard"
+                  className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${defaultsFor === c.id ? 'border-transparent text-white' : 'border-gray-200 dark:border-gray-600 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                  style={defaultsFor === c.id ? { backgroundColor: ACCENT } : undefined}
+                >
+                  Vorbelegung
+                </button>
                 <span className="text-xs text-gray-400 dark:text-gray-500">
                   {c.monthlyBudget ? (
                     <button
@@ -1068,6 +1104,37 @@ export default function SettingsPage({
                   </div>
                   <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
                     „Standard" vergibt automatisch einen Ton deiner Akzentfarbe.
+                  </p>
+                </li>
+              ),
+              defaultsFor === c.id && (
+                <li key={`${c.id}-defaults`} className="slide-in-up py-2 pl-6 border-b border-gray-100 dark:border-gray-700">
+                  <div className={`grid gap-2 ${isBusiness ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                    <div>
+                      <label className="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Dauerauftrag vorschlagen</label>
+                      <select
+                        value={c.defaultFrequency ?? ''}
+                        onChange={e => onUpdateCategory(c.id, { defaultFrequency: (e.target.value || undefined) as Frequency | undefined })}
+                        className={`${inputCls} py-2`}
+                      >
+                        {FREQ_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                    {isBusiness && (
+                      <div>
+                        <label className="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Steuer vorschlagen</label>
+                        <select
+                          value={c.defaultTaxRate ? String(c.defaultTaxRate) : ''}
+                          onChange={e => onUpdateCategory(c.id, { defaultTaxRate: e.target.value ? Number(e.target.value) : undefined })}
+                          className={`${inputCls} py-2`}
+                        >
+                          {TAX_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
+                    Der Wizard setzt das beim Wählen der Kategorie vor — du bestätigst oder änderst es je Buchung.
                   </p>
                 </li>
               ),

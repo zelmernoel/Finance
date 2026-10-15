@@ -3,8 +3,9 @@ import {
   type ChangeEvent, type FormEvent,
 } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import type { Category, Transaction } from '../types';
+import type { Budget, Category, Transaction } from '../types';
 import Card from '../components/Card';
+import { amountToInput, isValidTaxSplit, parseAmount, round2 } from '../lib/money';
 import EmptyState from '../components/EmptyState';
 import { formatEuro, formatDate, downloadCSV, ACCENT } from '../utils';
 import { exportTransactionsPDF } from '../lib/exportPDF';
@@ -23,9 +24,21 @@ interface Props {
   onUpdate: (id: string, patch: Partial<Omit<Transaction, 'id'>>) => Promise<void>;
   onNavigateToNew: () => void;
   budgetName: string;
+  /** Im Firmenbereich lässt sich die enthaltene Steuer bearbeiten. */
+  budgetType: Budget['type'];
   userName: string;
   /** settings.show_ai_badges — blendet die KI-Markierung aus, ohne sie zu löschen. */
   showAiBadges: boolean;
+}
+
+/** "inkl. 239,40 € USt" — nur wenn Steuer enthalten ist. */
+function TaxLine({ t }: { t: Transaction }) {
+  if (!t.taxAmount) return null;
+  return (
+    <span className="block text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">
+      netto {formatEuro(t.amount - t.taxAmount)} · {t.type === 'income' ? 'USt' : 'VSt'} {formatEuro(t.taxAmount)}
+    </span>
+  );
 }
 
 type SortKey = 'date' | 'amount';
@@ -61,9 +74,10 @@ function useDebounce<T>(value: T, ms: number): T {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function Transactions({
-  transactions, categories, onDelete, onUpdate, onNavigateToNew, budgetName, userName,
+  transactions, categories, onDelete, onUpdate, onNavigateToNew, budgetName, budgetType, userName,
   showAiBadges,
 }: Props) {
+  const isBusiness = budgetType === 'business';
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [search, setSearchRaw]      = useState(searchParams.get('q') ?? '');
@@ -86,28 +100,37 @@ export default function Transactions({
   const [sortDir, setSortDir]       = useState<SortDir>('desc');
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  // Edit state
+  // Edit state. Beträge als Strings: ein number-State verschluckte beim Tippen
+  // das Komma ("12," → 12), Dezimalstellen waren so nicht eingebbar.
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
-  const [editForm, setEditForm]   = useState<Partial<Omit<Transaction, 'id'>>>({});
+  const [editForm, setEditForm]   = useState<Partial<Omit<Transaction, 'id' | 'amount' | 'taxAmount'>>>({});
+  const [editAmount, setEditAmount] = useState('');
+  const [editTax, setEditTax]       = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError]   = useState<string | null>(null);
 
   function openEdit(t: Transaction) {
     setEditingTx(t);
     setEditForm({
-      date: t.date, type: t.type, amount: t.amount,
+      date: t.date, type: t.type,
       category: t.category, description: t.description, note: t.note ?? '',
     });
+    setEditAmount(amountToInput(t.amount));
+    setEditTax(amountToInput(t.taxAmount));
     setEditError(null);
   }
 
   async function handleEditSave(e: FormEvent) {
     e.preventDefault();
     if (!editingTx) return;
+    const amount = parseAmount(editAmount);
+    const tax = editTax.trim() ? parseAmount(editTax) : 0;
+    if (amount === null || amount <= 0) { setEditError('Bitte einen Betrag größer als 0 eingeben.'); return; }
+    if (tax === null || !isValidTaxSplit(amount, tax)) { setEditError('Die Steuer muss zwischen 0 und dem Betrag liegen.'); return; }
     setEditSaving(true);
     setEditError(null);
     try {
-      await onUpdate(editingTx.id, editForm);
+      await onUpdate(editingTx.id, { ...editForm, amount: round2(amount), taxAmount: round2(tax) });
       setEditingTx(null);
     } catch (err) {
       setEditError(err instanceof Error ? err.message : 'Fehler beim Speichern');
@@ -427,11 +450,12 @@ export default function Transactions({
                         )}
                       </div>
                       <div className="flex items-center gap-1 flex-shrink-0">
-                        <span className="text-sm font-semibold whitespace-nowrap mr-1">
+                        <span className="text-sm font-semibold whitespace-nowrap mr-1 text-right">
                           <span className="text-gray-900 dark:text-gray-100"
                             style={t.type === 'income' ? { color: 'var(--accent)' } : undefined}>
                             {t.type === 'income' ? '+' : '−'} {formatEuro(t.amount)}
                           </span>
+                          <TaxLine t={t} />
                         </span>
                         {/* Receipt icon */}
                         <button
@@ -535,6 +559,7 @@ export default function Transactions({
                             style={t.type === 'income' ? { color: 'var(--accent)' } : undefined}>
                             {t.type === 'income' ? '+' : '−'} {formatEuro(t.amount)}
                           </span>
+                          <TaxLine t={t} />
                         </td>
                         <td className="px-4 py-3 text-center">
                           <button
@@ -636,16 +661,27 @@ export default function Transactions({
                     <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Datum</label>
                     <input type="date" required value={editForm.date ?? ''} onChange={e => setEditForm(f => ({ ...f, date: e.target.value }))} className={inputCls2} />
                   </div>
-                  {/* Betrag */}
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Betrag (€)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">€</span>
-                      <input type="text" inputMode="decimal" required
-                        value={editForm.amount ?? ''}
-                        onChange={e => setEditForm(f => ({ ...f, amount: parseFloat(e.target.value.replace(',', '.')) || 0 }))}
-                        className={`${inputCls2} pl-7`} />
+                  {/* Betrag (+ Steuer im Firmenbereich) */}
+                  <div className={isBusiness ? 'grid grid-cols-2 gap-3' : ''}>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">{isBusiness ? 'Brutto (€)' : 'Betrag (€)'}</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">€</span>
+                        <input type="text" inputMode="decimal" required
+                          value={editAmount}
+                          onChange={e => setEditAmount(e.target.value)}
+                          className={`${inputCls2} pl-7`} />
+                      </div>
                     </div>
+                    {isBusiness && (
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+                          {editForm.type === 'income' ? 'davon USt (€)' : 'davon VSt (€)'}
+                        </label>
+                        <input type="text" inputMode="decimal" value={editTax} placeholder="0,00"
+                          onChange={e => setEditTax(e.target.value)} className={inputCls2} />
+                      </div>
+                    )}
                   </div>
                   {/* Kategorie */}
                   <div>

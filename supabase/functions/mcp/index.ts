@@ -38,7 +38,7 @@ const AUTH_SERVER = `${SUPABASE_URL}/auth/v1`;
 const RESOURCE_METADATA_URL = `${MCP_PUBLIC_URL}/.well-known/oauth-protected-resource`;
 
 const SERVER_NAME = 'finance';
-const SERVER_VERSION = '1.0.0';
+const SERVER_VERSION = '1.1.0';
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
 
@@ -304,7 +304,7 @@ async function fetchAllTransactions(sb: SupabaseClient, budgetId: string) {
   for (let offset = 0; ; offset += page) {
     const { data, error } = await sb
       .from('transactions')
-      .select('id, date, type, amount, category, description, note, source, created_at')
+      .select('id, date, type, amount, tax_amount, category, description, note, source, created_at')
       .eq('budget_id', budgetId)
       .order('date', { ascending: false })
       .order('created_at', { ascending: false })
@@ -327,8 +327,13 @@ async function fetchSettings(sb: SupabaseClient, budgetId: string) {
   return data as Record<string, unknown> | null;
 }
 
+/**
+ * amount ist immer BRUTTO und zählt zum Kontostand. tax_amount ist die darin
+ * enthaltene Steuer (0 = keine); Netto wird abgeleitet, nicht gespeichert.
+ */
 function mapTx(row: Record<string, unknown>) {
   const amount = toNum(row.amount);
+  const tax = toNum(row.tax_amount);
   return {
     id: String(row.id),
     datum: String(row.date),
@@ -336,6 +341,8 @@ function mapTx(row: Record<string, unknown>) {
     typ: row.type === 'income' ? 'Einnahme' : 'Ausgabe',
     type: String(row.type),
     ...money(amount),
+    netto: money(amount - tax),
+    steuer: money(tax),
     kategorie: String(row.category ?? ''),
     beschreibung: String(row.description ?? ''),
     notiz: row.note != null ? String(row.note) : '',
@@ -464,9 +471,11 @@ const TOOLS = [
     name: 'get-summary',
     description:
       'Kennzahlen eines Bereichs: Einnahmen, Ausgaben, Saldo und Sparquote für einen Zeitraum sowie den ' +
-      'aktuellen Kontostand. Ohne Angabe von from/to wird der laufende Abrechnungsmonat verwendet, der den ' +
-      'in den Einstellungen gesetzten Monatsbeginn berücksichtigt. Der Kontostand umfasst immer alle ' +
-      'Transaktionen des Bereichs, unabhängig vom Zeitraum. Pflichtparameter: budget_id.',
+      'aktuellen Kontostand, den Bestand in Sparttöpfen und das daraus VERFÜGBARE Geld ' +
+      '(Kontostand minus Töpfe; der Steuertopf enthält die ans Finanzamt abzuführende Umsatzsteuer). ' +
+      'Ohne Angabe von from/to wird der laufende Abrechnungsmonat verwendet, der den in den Einstellungen ' +
+      'gesetzten Monatsbeginn berücksichtigt. Der Kontostand umfasst immer alle Transaktionen des Bereichs, ' +
+      'unabhängig vom Zeitraum. Alle Beträge sind brutto. Pflichtparameter: budget_id.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -539,7 +548,11 @@ const TOOLS = [
   {
     name: 'list-pots',
     description:
-      'Listet Sparttöpfe mit Zuteilungsprozentsatz, Sparziel und aktuellem Bestand. ' +
+      'Listet Sparttöpfe mit Art, Zuteilungsprozentsatz, Sparziel und aktuellem Bestand. ' +
+      'Art "manuell": vom Nutzer angelegt, bekommt den Prozentanteil vom NETTO jeder Einnahme. ' +
+      'Art "steuer": der automatische Steuertopf (einer je Bereich), exakt befüllt aus der in Buchungen ' +
+      'enthaltenen Steuer — Umsatzsteuer aus Einnahmen rein, Vorsteuer aus Ausgaben raus; ein negativer ' +
+      'Bestand ist ein Vorsteuerüberhang. Der Bestand aller Töpfe ist reserviert und nicht verfügbar. ' +
       'Ohne budget_id werden die Töpfe aller Bereiche zurückgegeben.',
     inputSchema: {
       type: 'object',
@@ -642,8 +655,13 @@ const TOOLS = [
       'Löschen sind nicht möglich. Alle Pflichtparameter müssen gesetzt sein, es gibt keine Vorbelegung — ' +
       'insbesondere wird kein Bereich geraten. Der Kategoriename muss exakt einer vorhandenen Kategorie des ' +
       'Bereichs mit passendem Typ entsprechen (siehe list-categories); neue Kategorien werden nicht angelegt. ' +
-      'Der Betrag ist immer positiv, die Richtung ergibt sich aus "type". Die Buchung wird mit der Herkunft ' +
-      '"mcp" markiert und im KI-Protokoll festgehalten.',
+      'Der Betrag ist immer positiv und BRUTTO, die Richtung ergibt sich aus "type". ' +
+      'Enthaltene Steuer (nur Firmenbereiche): entweder "tax_amount" (Betrag von der Rechnung) oder ' +
+      '"tax_rate" (Satz in Prozent, z. B. 19 → Steuer = amount − amount/1,19) angeben, nie beides. ' +
+      'Ohne Angabe gilt 0 — richtig für Privatbereiche und für Rechnungen ohne deutsche USt ' +
+      '(Reverse Charge, Kleinunternehmer). Die Steuer bucht ein DB-Trigger automatisch in den Steuertopf: ' +
+      'Einnahme +, Ausgabe − (Vorsteuerabzug). Die Buchung wird mit der Herkunft "mcp" markiert und im ' +
+      'KI-Protokoll festgehalten.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -656,7 +674,19 @@ const TOOLS = [
         },
         amount: {
           type: 'number',
-          description: 'Pflicht. Positiver Betrag in Euro, maximal zwei Nachkommastellen, höchstens 1000000.',
+          description: 'Pflicht. Positiver Bruttobetrag in Euro, maximal zwei Nachkommastellen, höchstens 1000000.',
+        },
+        tax_amount: {
+          type: 'number',
+          description:
+            'Optional. Im Bruttobetrag enthaltene Steuer in Euro (0 ≤ tax_amount < amount). ' +
+            'Vorrang vor tax_rate.',
+        },
+        tax_rate: {
+          type: 'number',
+          description:
+            'Optional. Enthaltener Steuersatz in Prozent (0–100), z. B. 19 oder 7. Der Server rechnet ' +
+            'die Steuer als amount − amount / (1 + tax_rate/100), auf Cent gerundet.',
         },
         category: {
           type: 'string',
@@ -725,6 +755,22 @@ function sumBy(rows: Record<string, unknown>[], type: 'income' | 'expense'): num
   return rows
     .filter((t) => t.type === type)
     .reduce((s, t) => s + toNum(t.amount), 0);
+}
+
+function sumTaxBy(rows: Record<string, unknown>[], type: 'income' | 'expense'): number {
+  return rows
+    .filter((t) => t.type === type)
+    .reduce((s, t) => s + toNum(t.tax_amount), 0);
+}
+
+/** Töpfe eines Bereichs — für "verfügbar" in get-summary. */
+async function fetchPots(sb: SupabaseClient, budgetId: string) {
+  const { data, error } = await sb
+    .from('savings_pots')
+    .select('id, name, kind, current_amount')
+    .eq('budget_id', budgetId);
+  if (error) throw new ToolError(`Sparttöpfe konnten nicht gelesen werden: ${error.message}`);
+  return (data ?? []) as Record<string, unknown>[];
 }
 
 function groupByCategory(rows: Record<string, unknown>[]): Record<string, number> {
@@ -799,7 +845,7 @@ const HANDLERS: Record<string, Handler> = {
 
     let q = sb
       .from('transactions')
-      .select('id, date, type, amount, category, description, note, source, created_at', {
+      .select('id, date, type, amount, tax_amount, category, description, note, source, created_at', {
         count: 'exact',
       })
       .eq('budget_id', budgetId);
@@ -846,6 +892,8 @@ const HANDLERS: Record<string, Handler> = {
     const mapped = rows.map(mapTx);
     const einnahmen = sumBy(rows, 'income');
     const ausgaben = sumBy(rows, 'expense');
+    const umsatzsteuer = sumTaxBy(rows, 'income');
+    const vorsteuer = sumTaxBy(rows, 'expense');
 
     return {
       budgetId,
@@ -860,6 +908,8 @@ const HANDLERS: Record<string, Handler> = {
           einnahmen: money(einnahmen),
           ausgaben: money(ausgaben),
           saldo: money(einnahmen - ausgaben),
+          umsatzsteuer_enthalten: money(umsatzsteuer),
+          vorsteuer_enthalten: money(vorsteuer),
         },
       },
       summary: `${mapped.length} Transaktionen gelesen (Bereich ${budget.name})`,
@@ -896,6 +946,15 @@ const HANDLERS: Record<string, Handler> = {
     const kontostand =
       startingBalance + sumBy(all, 'income') - sumBy(all, 'expense');
 
+    // Verfügbar = Kontostand minus Bestand aller Töpfe. Rechnung identisch
+    // zu src/pages/Dashboard.tsx. Der Steuertopf zählt mit — dieses Geld
+    // gehört dem Finanzamt; ist er negativ, erhöht die erwartete Erstattung
+    // das Verfügbare.
+    const pots = await fetchPots(sb, budgetId);
+    const inToepfen = pots.reduce((s, p) => s + toNum(p.current_amount), 0);
+    const verfuegbar = kontostand - inToepfen;
+    const steuertopf = pots.find((p) => p.kind === 'tax');
+
     return {
       budgetId,
       payload: {
@@ -911,6 +970,8 @@ const HANDLERS: Record<string, Handler> = {
         einnahmen: money(einnahmen),
         ausgaben: money(ausgaben),
         saldo: money(saldo),
+        umsatzsteuer_im_zeitraum: money(sumTaxBy(inRange, 'income')),
+        vorsteuer_im_zeitraum: money(sumTaxBy(inRange, 'expense')),
         sparquote_prozent: Math.round(sparquote * 10) / 10,
         sparquote_formatiert: `${(Math.round(sparquote * 10) / 10).toLocaleString('de-DE', {
           minimumFractionDigits: 1,
@@ -921,8 +982,22 @@ const HANDLERS: Record<string, Handler> = {
           anfangssaldo: money(startingBalance),
           quelle: 'settings.starting_balance',
           anzahl_beruecksichtigter_buchungen: all.length,
-          hinweis: 'Der Kontostand umfasst alle Buchungen des Bereichs, nicht nur den Zeitraum.',
+          hinweis: 'Der Kontostand umfasst alle Buchungen des Bereichs, nicht nur den Zeitraum. Beträge sind brutto.',
         },
+        verfuegbar: money(verfuegbar),
+        in_toepfen: money(inToepfen),
+        steuertopf: steuertopf
+          ? {
+              pot_id: String(steuertopf.id),
+              name: String(steuertopf.name ?? ''),
+              bestand: money(toNum(steuertopf.current_amount)),
+              hinweis:
+                toNum(steuertopf.current_amount) < 0
+                  ? 'Negativ: Vorsteuerüberhang, Erstattung vom Finanzamt zu erwarten.'
+                  : 'Umsatzsteuer aus Einnahmen abzüglich Vorsteuer aus Ausgaben; ans Finanzamt abzuführen.',
+            }
+          : null,
+        anzahl_toepfe: pots.length,
         anzahl_buchungen_im_zeitraum: inRange.length,
       },
       summary:
@@ -931,7 +1006,8 @@ const HANDLERS: Record<string, Handler> = {
       headline:
         `${budget.name}, ${formatDate(range.from)}–${formatDate(range.to)}: ` +
         `Einnahmen ${formatEuro(einnahmen)}, Ausgaben ${formatEuro(ausgaben)}, ` +
-        `Saldo ${formatEuro(saldo)}. Kontostand ${formatEuro(kontostand)}.`,
+        `Saldo ${formatEuro(saldo)}. Kontostand ${formatEuro(kontostand)}, ` +
+        `davon ${formatEuro(inToepfen)} in Töpfen → verfügbar ${formatEuro(verfuegbar)}.`,
     };
   },
 
@@ -1062,7 +1138,7 @@ const HANDLERS: Record<string, Handler> = {
     let q = sb
       .from('recurring_transactions')
       .select(
-        'id, budget_id, amount, type, category, description, note, frequency, ' +
+        'id, budget_id, amount, tax_amount, type, category, description, note, frequency, ' +
         'start_date, end_date, next_due, last_executed, is_active, created_at',
       );
     if (budgetId) q = q.eq('budget_id', budgetId);
@@ -1077,12 +1153,13 @@ const HANDLERS: Record<string, Handler> = {
       yearly: 'Jährlich',
     };
 
-    const rows = (data ?? []) as Record<string, unknown>[];
+    const rows = (data ?? []) as unknown as Record<string, unknown>[];
     const payload = rows.map((r) => ({
       id: String(r.id),
       budget_id: r.budget_id != null ? String(r.budget_id) : null,
       beschreibung: String(r.description ?? ''),
       ...money(toNum(r.amount)),
+      steuer: money(toNum(r.tax_amount)),
       typ: r.type === 'income' ? 'Einnahme' : 'Ausgabe',
       type: String(r.type),
       kategorie: String(r.category ?? ''),
@@ -1114,7 +1191,7 @@ const HANDLERS: Record<string, Handler> = {
     let q = sb
       .from('savings_pots')
       .select(
-        'id, budget_id, name, allocation_percent, target_amount, current_amount, ' +
+        'id, budget_id, name, kind, allocation_percent, target_amount, current_amount, ' +
         'color, icon, sort_order, created_at, updated_at',
       );
     if (budgetId) q = q.eq('budget_id', budgetId);
@@ -1124,7 +1201,9 @@ const HANDLERS: Record<string, Handler> = {
       .order('created_at', { ascending: true });
     if (error) throw new ToolError(`Sparttöpfe konnten nicht gelesen werden: ${error.message}`);
 
-    const rows = (data ?? []) as Record<string, unknown>[];
+    // Der Typ-Parser von postgrest-js kann zusammengesetzte Select-Strings
+    // nicht lesen und liefert GenericStringError; die Zeilen sind trotzdem da.
+    const rows = (data ?? []) as unknown as Record<string, unknown>[];
     const payload = rows.map((p) => {
       const ist = toNum(p.current_amount);
       const ziel = p.target_amount != null ? toNum(p.target_amount) : null;
@@ -1132,6 +1211,8 @@ const HANDLERS: Record<string, Handler> = {
         id: String(p.id),
         budget_id: p.budget_id != null ? String(p.budget_id) : null,
         name: String(p.name ?? ''),
+        art: p.kind === 'tax' ? 'steuer' : 'manuell',
+        kind: p.kind === 'tax' ? 'tax' : 'manual',
         zuteilung_prozent: toNum(p.allocation_percent),
         ist_betrag: money(ist),
         ziel_betrag: ziel != null ? money(ziel) : null,
@@ -1544,6 +1625,38 @@ const HANDLERS: Record<string, Handler> = {
       );
     }
 
+    // Steuer: Betrag von der Rechnung hat Vorrang, sonst aus dem Satz rechnen.
+    // Gleiche Rechnung wie src/lib/money.ts (taxFromGross).
+    let taxAmount = 0;
+    const rawTax = optionalNumber(args, 'tax_amount');
+    const rawRate = optionalNumber(args, 'tax_rate');
+    if (rawTax !== undefined && rawRate !== undefined) {
+      throw new ToolError('Bitte entweder "tax_amount" oder "tax_rate" angeben, nicht beides.');
+    }
+    if (rawTax !== undefined) {
+      taxAmount = Math.round(rawTax * 100) / 100;
+      if (Math.abs(taxAmount - rawTax) > 1e-9) {
+        throw new ToolError(`"tax_amount" darf höchstens zwei Nachkommastellen haben (erhalten: ${rawTax}).`);
+      }
+    } else if (rawRate !== undefined) {
+      if (rawRate < 0 || rawRate > 100) {
+        throw new ToolError(`"tax_rate" muss zwischen 0 und 100 liegen (erhalten: ${rawRate}).`);
+      }
+      const net = Math.round((amount / (1 + rawRate / 100)) * 100) / 100;
+      taxAmount = Math.round((amount - net) * 100) / 100;
+    }
+    if (taxAmount < 0 || taxAmount >= amount) {
+      throw new ToolError(
+        `Die enthaltene Steuer muss zwischen 0 und dem Bruttobetrag liegen (Steuer ${taxAmount}, Brutto ${amount}).`,
+      );
+    }
+    if (taxAmount > 0 && budget.type !== 'business') {
+      throw new ToolError(
+        `Der Bereich "${budget.name}" ist ein Privatbereich; dort gibt es keine Steuerzerlegung. ` +
+        'Bitte ohne tax_amount/tax_rate buchen.',
+      );
+    }
+
     const category = requireString(args, 'category');
     const cats = await fetchCategories(sb, budgetId);
     const passend = cats.filter((c) => c.type === type);
@@ -1572,6 +1685,7 @@ const HANDLERS: Record<string, Handler> = {
       date,
       type,
       amount,
+      tax_amount: taxAmount,
       category,
       description,
       note,
@@ -1584,7 +1698,7 @@ const HANDLERS: Record<string, Handler> = {
     // ── Schritt 3: Read-after-write ──
     const { data: readBack, error: readError } = await sb
       .from('transactions')
-      .select('id, budget_id, date, type, amount, category, description, note, source, created_at')
+      .select('id, budget_id, date, type, amount, tax_amount, category, description, note, source, created_at')
       .eq('id', id)
       .maybeSingle();
 
@@ -1611,7 +1725,7 @@ const HANDLERS: Record<string, Handler> = {
     let verteilung: {
       stattgefunden: boolean;
       summe: { betrag: number; formatiert: string } | null;
-      toepfe: { topf: string; pot_id: string; betrag: number; formatiert: string }[];
+      toepfe: { topf: string; pot_id: string; art: string; betrag: number; formatiert: string }[];
       hinweis: string;
       lesefehler?: string;
     } = {
@@ -1624,8 +1738,8 @@ const HANDLERS: Record<string, Handler> = {
     try {
       const { data: allocRows, error: allocError } = await sb
         .from('pot_allocations')
-        .select('id, pot_id, amount')
-        .eq('income_transaction_id', id);
+        .select('id, pot_id, amount, kind')
+        .eq('transaction_id', id);
 
       if (allocError) {
         verteilung.lesefehler = allocError.message;
@@ -1651,6 +1765,7 @@ const HANDLERS: Record<string, Handler> = {
               return {
                 topf: namen.get(String(a.pot_id)) ?? '(unbekannter Topf)',
                 pot_id: String(a.pot_id),
+                art: a.kind === 'tax' ? (betrag < 0 ? 'Vorsteuer' : 'Umsatzsteuer') : 'Anteil',
                 betrag: Math.round(betrag * 100) / 100,
                 formatiert: formatEuro(betrag),
               };
@@ -1664,7 +1779,8 @@ const HANDLERS: Record<string, Handler> = {
             toepfe,
             hinweis:
               'Diese Verteilung hat ein Datenbank-Trigger ausgelöst, nicht der MCP-Server. ' +
-              'Sie verändert savings_pots.current_amount und pot_allocations.',
+              'Sie verändert savings_pots.current_amount und pot_allocations. ' +
+              'Negative Beträge sind Vorsteuer, die den Steuertopf mindert.',
           };
         }
       }
@@ -1674,14 +1790,17 @@ const HANDLERS: Record<string, Handler> = {
         'Ob eine Spartopf-Verteilung stattgefunden hat, konnte nicht geprüft werden.';
     }
 
+    const steuerZeile = gelesen.steuer.betrag > 0
+      ? ` (netto ${gelesen.netto.formatiert}, Steuer ${gelesen.steuer.formatiert})`
+      : '';
     const bestaetigung =
-      `Eingetragen: ${formatEuro(gelesen.betrag)} ${gelesen.typ}, ` +
+      `Eingetragen: ${formatEuro(gelesen.betrag)} ${gelesen.typ}${steuerZeile}, ` +
       `Kategorie ${gelesen.kategorie}, ${gelesen.datum_formatiert}, ` +
       `Budget ${budget.name} — ID ${gelesen.id}`;
 
     const verteilungsZeile = verteilung.stattgefunden
-      ? ` Davon automatisch auf Sparttöpfe verteilt: ${verteilung.summe?.formatiert} (` +
-        verteilung.toepfe.map((t) => `${t.topf} ${t.formatiert}`).join(', ') + ').'
+      ? ` Spartopf-Buchungen: ` +
+        verteilung.toepfe.map((t) => `${t.topf} ${t.art} ${t.formatiert}`).join(', ') + '.'
       : verteilung.lesefehler
         ? ' Hinweis: die Spartopf-Verteilung konnte nicht geprüft werden.'
         : '';

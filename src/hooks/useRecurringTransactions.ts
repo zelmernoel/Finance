@@ -27,8 +27,19 @@ interface UseRecurringResult {
 }
 
 /**
+ * Sicherheitsgrenze je Dauerauftrag und App-Start. Ein täglicher Auftrag, der
+ * ein Jahr nicht lief, würde sonst 365 Buchungen auf einmal erzeugen.
+ */
+const MAX_CATCH_UP = 60;
+
+/**
  * On mount (when storage becomes available): auto-executes all overdue
  * recurring transactions. Returns how many were booked.
+ *
+ * Jede überfällige Fälligkeit wird einzeln gebucht, datiert auf ihren
+ * Fälligkeitstag — nicht auf "heute". Vorher wurde pro App-Start nur EINE
+ * Ausführung nachgeholt: wer die App zwei Monate nicht öffnete, bekam einen
+ * Monat Abo geschenkt, und das Datum stimmte auch nicht.
  */
 export function useRecurringTransactions(
   storage: StorageAdapter | null,
@@ -52,26 +63,34 @@ export function useRecurringTransactions(
       const created: Transaction[] = [];
 
       for (const r of due) {
-        // Book the transaction
-        const tx: Transaction = {
-          id: crypto.randomUUID(),
-          date: today,
-          type: r.type,
-          amount: r.amount,
-          category: r.category,
-          description: r.description,
-          note: r.note ?? '',
-        };
-        const saved = await storage.addTransaction(tx);
-        created.push(saved);
+        let nextDue = r.nextDue;
+        let lastBooked = r.lastExecuted;
+        let active = true;
+        let runs = 0;
 
-        // Calculate next due
-        const nextDue = calcNextDue(r.nextDue, r.frequency);
-        const expired = r.endDate ? nextDue > r.endDate : false;
+        while (active && nextDue <= today && runs < MAX_CATCH_UP) {
+          lastBooked = nextDue;
+          const saved = await storage.addTransaction({
+            id: crypto.randomUUID(),
+            date: nextDue,
+            type: r.type,
+            amount: r.amount,
+            taxAmount: r.taxAmount ?? 0,
+            category: r.category,
+            description: r.description,
+            note: r.note ?? '',
+          });
+          created.push(saved);
+          runs++;
+
+          nextDue = calcNextDue(nextDue, r.frequency);
+          if (r.endDate && nextDue > r.endDate) active = false;
+        }
+
         await storage.updateRecurring(r.id, {
           nextDue,
-          lastExecuted: today,
-          isActive: !expired,
+          lastExecuted: lastBooked,
+          isActive: active,
         });
       }
 

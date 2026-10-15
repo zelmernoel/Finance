@@ -16,6 +16,7 @@ function rowToTx(row: Record<string, unknown>): Transaction {
     date:        String(row.date),
     type:        row.type as 'income' | 'expense',
     amount:      toNum(row.amount),
+    taxAmount:   toNum(row.tax_amount),
     category:    String(row.category ?? ''),
     description: String(row.description ?? ''),
     note:        row.note != null ? String(row.note) : '',
@@ -29,6 +30,10 @@ function rowToCat(row: Record<string, unknown>): Category {
     name:          String(row.name),
     type:          row.type as 'income' | 'expense',
     monthlyBudget: row.monthly_budget != null ? toNum(row.monthly_budget) : undefined,
+    defaultFrequency: row.default_frequency != null
+      ? (String(row.default_frequency) as Category['defaultFrequency'])
+      : undefined,
+    defaultTaxRate: row.default_tax_rate != null ? toNum(row.default_tax_rate) : undefined,
   };
 }
 
@@ -62,6 +67,7 @@ function rowToRecurring(row: Record<string, unknown>): RecurringTransaction {
     id:           String(row.id),
     budgetId:     String(row.budget_id ?? ''),
     amount:       toNum(row.amount),
+    taxAmount:    toNum(row.tax_amount),
     type:         row.type as 'income' | 'expense',
     category:     String(row.category ?? ''),
     description:  String(row.description ?? ''),
@@ -166,6 +172,13 @@ export async function initializeNewUser(userId: string): Promise<string | null> 
 // ── SupabaseAdapter (scoped to budgetId) ──────────────────────────────────────
 
 export function createSupabaseAdapter(userId: string, budgetId: string): StorageAdapter {
+  /** Eine Stelle, die eine Transaction in eine DB-Zeile übersetzt. */
+  const txRow = (t: Transaction) => ({
+    id: t.id, user_id: userId, budget_id: budgetId,
+    date: t.date, type: t.type, amount: t.amount, tax_amount: t.taxAmount ?? 0,
+    category: t.category, description: t.description, note: t.note ?? '',
+  });
+
   return {
     // ── Transactions ──────────────────────────────────────────────────────────
 
@@ -184,11 +197,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
     async addTransaction(t) {
       const { data, error } = await supabase
         .from('transactions')
-        .insert({
-          id: t.id, user_id: userId, budget_id: budgetId,
-          date: t.date, type: t.type, amount: t.amount,
-          category: t.category, description: t.description, note: t.note ?? '',
-        })
+        .insert(txRow(t))
         .select().single();
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return rowToTx(data as Record<string, unknown>);
@@ -199,6 +208,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       if (patch.date        !== undefined) dbPatch.date        = patch.date;
       if (patch.type        !== undefined) dbPatch.type        = patch.type;
       if (patch.amount      !== undefined) dbPatch.amount      = patch.amount;
+      if (patch.taxAmount   !== undefined) dbPatch.tax_amount  = patch.taxAmount;
       if (patch.category    !== undefined) dbPatch.category    = patch.category;
       if (patch.description !== undefined) dbPatch.description = patch.description;
       if (patch.note        !== undefined) dbPatch.note        = patch.note;
@@ -223,11 +233,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
 
     async importTransactions(txs) {
       if (!txs.length) return [];
-      const rows = txs.map(t => ({
-        id: t.id, user_id: userId, budget_id: budgetId,
-        date: t.date, type: t.type, amount: t.amount,
-        category: t.category, description: t.description, note: t.note ?? '',
-      }));
+      const rows = txs.map(txRow);
       const { data, error } = await supabase.from('transactions').insert(rows).select();
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return (data ?? []).map(r => rowToTx(r as Record<string, unknown>));
@@ -275,9 +281,14 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
     },
 
     async updateCategory(id, patch) {
+      // Prüfung auf Schlüssel statt auf !== undefined: { monthlyBudget: undefined }
+      // heisst "Budget entfernen" und muss als NULL ankommen. Mit der alten
+      // Prüfung war das Entfernen eines Monatsbudgets ein stiller No-op.
       const dbPatch: Record<string, unknown> = {};
-      if (patch.name !== undefined) dbPatch.name = patch.name;
-      if (patch.monthlyBudget !== undefined) dbPatch.monthly_budget = patch.monthlyBudget;
+      if (patch.name !== undefined)      dbPatch.name              = patch.name;
+      if ('monthlyBudget' in patch)      dbPatch.monthly_budget    = patch.monthlyBudget ?? null;
+      if ('defaultFrequency' in patch)   dbPatch.default_frequency = patch.defaultFrequency ?? null;
+      if ('defaultTaxRate' in patch)     dbPatch.default_tax_rate  = patch.defaultTaxRate ?? null;
       const { data, error } = await supabase.from('categories')
         .update(dbPatch).eq('id', id).eq('user_id', userId).select().single();
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
@@ -339,7 +350,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       const { data, error } = await supabase.from('recurring_transactions')
         .insert({
           id: r.id, user_id: userId, budget_id: budgetId,
-          amount: r.amount, type: r.type, category: r.category,
+          amount: r.amount, tax_amount: r.taxAmount ?? 0, type: r.type, category: r.category,
           description: r.description, note: r.note ?? null,
           frequency: r.frequency, start_date: r.startDate,
           end_date: r.endDate ?? null, next_due: r.nextDue,
@@ -357,6 +368,7 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
       if (patch.isActive !== undefined)     dbPatch.is_active     = patch.isActive;
       if (patch.endDate !== undefined)      dbPatch.end_date      = patch.endDate;
       if (patch.amount !== undefined)       dbPatch.amount        = patch.amount;
+      if (patch.taxAmount !== undefined)    dbPatch.tax_amount    = patch.taxAmount;
       if (patch.category !== undefined)     dbPatch.category      = patch.category;
       if (patch.description !== undefined)  dbPatch.description   = patch.description;
       if (patch.frequency !== undefined)    dbPatch.frequency     = patch.frequency;
