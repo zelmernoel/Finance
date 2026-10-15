@@ -1,5 +1,15 @@
 # SYSTEM-REPORT — Finance
 
+> **Nachtrag 2026-10-16 (Branch `feature/steuer-wizard`):** Dieser Report
+> beschreibt den Stand VOR der Steuer-Erweiterung. Seitdem: `transactions.tax_amount`,
+> `recurring_transactions.tax_amount`, `categories.default_frequency/default_tax_rate`,
+> `savings_pots.kind` ('manual' | 'tax'), `pot_allocations.kind` und die Umbenennung
+> `pot_allocations.income_transaction_id → transaction_id`. Die Trigger-Funktionen aus
+> Abschnitt „Sparttöpfe“ sind durch `supabase/tax.sql` ersetzt (Steuertopf, Verteilung
+> vom Netto, UPDATE-fähiger Sync, `ensure_tax_pot`). Die Live-DB hatte zudem nie den
+> Update-Trigger `trg_redistribute_income` und nie `settings.onboarding_completed` —
+> beides ist mit `tax.sql` nachgezogen. Massgeblich ist weiterhin der Code.
+>
 > **Aktualisiert:** 2026-09-03
 > **Bezugspunkt:** Commit `e9e3c83` auf `main`
 > **Zuvor:** erste Fassung vom 2026-09-02 auf Commit `88be12e`

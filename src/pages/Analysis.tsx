@@ -9,12 +9,13 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import EmptyState from '../components/EmptyState';
 import {
   formatEuro, getCurrentMonth, filterByMonth, getLast12Months,
-  getCustomMonthRange, getMonthRange, groupByCategory, ACCENT, formatAxisEuro,
+  getCustomMonthRange, getMonthRange, groupByCategory, ACCENT, formatAxisEuro, parseLocalDate,
 } from '../utils';
 import { useTheme } from '../hooks/useTheme';
 import { useChartTheme } from '../hooks/useChartTheme';
 import { useCategoryColorResolver } from '../hooks/useCategoryColors';
 import { useBudget } from '../context/BudgetContext';
+import { parseAmount } from '../lib/money';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const euroFmt = (v: any) => formatEuro(typeof v === 'number' ? v : 0);
@@ -70,11 +71,14 @@ export default function Analysis({
     transactions.filter(t => t.type === 'expense' && t.date >= periodFrom && t.date <= periodTo),
     [transactions, periodFrom, periodTo]);
 
+  // Vormonat mit demselben Monatsbeginn wie der aktuelle Zeitraum — sonst
+  // vergleicht man bei monthStart 25 den 25.10.–24.11. mit dem Kalender-September.
   const prevMonth = viewMonth.month === 1 ? 12 : viewMonth.month - 1;
   const prevYear  = viewMonth.month === 1 ? viewMonth.year - 1 : viewMonth.year;
-  const prevExpenses = useMemo(() =>
-    filterByMonth(transactions, prevYear, prevMonth).filter(t => t.type === 'expense'),
-    [transactions, prevYear, prevMonth]);
+  const prevExpenses = useMemo(() => {
+    const { from, to } = getMonthRange(prevYear, prevMonth, monthStart);
+    return transactions.filter(t => t.type === 'expense' && t.date >= from && t.date <= to);
+  }, [transactions, prevYear, prevMonth, monthStart]);
 
   // Top 5
   const top5Data = useMemo(() => {
@@ -86,9 +90,19 @@ export default function Analysis({
       .sort((a, b) => b.current - a.current).slice(0, 5);
   }, [currentExpenses, prevExpenses]);
 
-  // Average monthly + category ranking
-  const monthCount = Math.max(getLast12Months().length, 1);
-  const allExpenses = useMemo(() => transactions.filter(t => t.type === 'expense'), [transactions]);
+  // Average monthly + category ranking.
+  // Ø/Monat über die letzten 12 Monate, geteilt durch die Monate, in denen
+  // überhaupt gebucht wurde — vorher wurde ALLES jemals Gebuchte durch 12
+  // geteilt, bei drei Monaten Daten also viermal zu niedrig.
+  const last12 = useMemo(() => getLast12Months(), []);
+  const allExpenses = useMemo(() => {
+    const firstYM = `${last12[0].year}-${String(last12[0].month).padStart(2, '0')}`;
+    return transactions.filter(t => t.type === 'expense' && t.date.slice(0, 7) >= firstYM);
+  }, [transactions, last12]);
+  const monthCount = useMemo(
+    () => Math.max(1, new Set(allExpenses.map(t => t.date.slice(0, 7))).size),
+    [allExpenses],
+  );
   const totalExpenses = useMemo(() => allExpenses.reduce((s, t) => s + t.amount, 0), [allExpenses]);
 
   const categoryRanking = useMemo(() => {
@@ -130,11 +144,12 @@ export default function Analysis({
     return { label, Sparrate: income - expense };
   }), [transactions]);
 
-  // Scatter
+  // Scatter — parseLocalDate statt new Date('YYYY-MM-DD'): Letzteres ist UTC
+  // und liefert westlich von Greenwich den Vortag (siehe utils.ts).
   const scatterData = useMemo(() => transactions
     .filter(t => t.type === 'expense')
     .map(t => {
-      const d = new Date(t.date);
+      const d = parseLocalDate(t.date);
       return { weekday: d.getDay(), dayOfMonth: d.getDate(), amount: t.amount, label: t.description };
     }), [transactions]);
 
@@ -237,7 +252,7 @@ export default function Analysis({
                     <td className="py-2 text-right">
                       {row.trend !== null ? (
                         <span className={`text-xs font-medium ${row.trend > 5 ? 'text-red-500' : row.trend < -5 ? 'text-green-600' : 'text-gray-400 dark:text-gray-500'}`}>
-                          {row.trend > 0 ? '↑' : '↓'} {Math.abs(row.trend).toFixed(0)} %
+                          {row.trend > 0 ? '↑' : row.trend < 0 ? '↓' : '→'} {Math.abs(row.trend).toFixed(0)} %
                         </span>
                       ) : <span className="text-xs text-gray-300 dark:text-gray-600">–</span>}
                     </td>
@@ -263,9 +278,9 @@ export default function Analysis({
                             onClick={e => {
                               e.stopPropagation();
                               const v = prompt(`Monatsbudget für "${row.cat}" (€):`, '');
-                              const n = parseFloat((v ?? '').replace(',', '.'));
-                              if (!isNaN(n) && n > 0 && row.catId) {
-                                onUpdateCategory(row.catId, { monthlyBudget: n });
+                              const n = parseAmount(v ?? '');
+                              if (n !== null && n > 0 && row.catId) {
+                                void onUpdateCategory(row.catId, { monthlyBudget: n });
                               }
                             }}
                             className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 underline underline-offset-2"

@@ -1,10 +1,5 @@
 import type { Transaction } from '../types';
-import { formatEuro, todayISO } from '../utils';
-
-function fmtDate(iso: string): string {
-  const [y, m, d] = iso.split('-');
-  return `${d}.${m}.${y}`;
-}
+import { escapeHtml, formatDate as fmtDate, formatEuro, todayISO } from '../utils';
 
 export function printTransactions(
   transactions: Transaction[],
@@ -13,21 +8,25 @@ export function printTransactions(
 ): void {
   const income  = transactions.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
   const expense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const anyTax  = transactions.some(t => (t.taxAmount ?? 0) > 0);
+  const ust     = transactions.filter(t => t.type === 'income').reduce((s, t) => s + (t.taxAmount ?? 0), 0);
+  const vst     = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + (t.taxAmount ?? 0), 0);
 
   const rows = transactions.map(t => `
     <tr>
       <td>${fmtDate(t.date)}</td>
       <td>${t.type === 'income' ? 'Einnahme' : 'Ausgabe'}</td>
-      <td>${t.category}</td>
-      <td>${t.description}</td>
+      <td>${escapeHtml(t.category)}</td>
+      <td>${escapeHtml(t.description)}</td>
       <td class="${t.type}">${t.type === 'income' ? '+' : '−'}${formatEuro(t.amount)}</td>
+      ${anyTax ? `<td class="tax">${t.taxAmount ? formatEuro(t.taxAmount) : ''}</td>` : ''}
     </tr>`).join('');
 
   const html = `<!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="UTF-8"/>
-<title>Finance – ${budgetName}</title>
+<title>Finance – ${escapeHtml(budgetName)}</title>
 <style>
   body { font-family: system-ui, sans-serif; font-size: 12px; color: #111; margin: 24px; }
   h1 { font-size: 18px; margin-bottom: 4px; }
@@ -42,19 +41,21 @@ export function printTransactions(
   td { padding: 6px 8px; border-bottom: 1px solid #f3f4f6; }
   td.income  { color: #4A6FA5; font-weight: 600; text-align: right; }
   td.expense { text-align: right; font-weight: 600; }
+  td.tax     { text-align: right; color: #666; }
   @media print { body { margin: 0; } }
 </style>
 </head>
 <body>
-<h1>Finance – ${budgetName}</h1>
-<p class="meta">Erstellt am ${fmtDate(todayISO())}${userName ? ' · ' + userName : ''}</p>
+<h1>Finance – ${escapeHtml(budgetName)}</h1>
+<p class="meta">Erstellt am ${fmtDate(todayISO())}${userName ? ' · ' + escapeHtml(userName) : ''}</p>
 <div class="summary">
   <span><strong>${formatEuro(income)}</strong>Einnahmen</span>
   <span><strong>${formatEuro(expense)}</strong>Ausgaben</span>
   <span><strong>${formatEuro(income - expense)}</strong>Saldo</span>
+  ${anyTax ? `<span><strong>${formatEuro(ust)}</strong>USt enthalten</span><span><strong>${formatEuro(vst)}</strong>VSt enthalten</span>` : ''}
 </div>
 <table>
-  <thead><tr><th>Datum</th><th>Typ</th><th>Kategorie</th><th>Beschreibung</th><th>Betrag</th></tr></thead>
+  <thead><tr><th>Datum</th><th>Typ</th><th>Kategorie</th><th>Beschreibung</th><th>Betrag</th>${anyTax ? '<th>davon Steuer</th>' : ''}</tr></thead>
   <tbody>${rows}</tbody>
 </table>
 </body>

@@ -4,13 +4,11 @@ import {
 } from 'react';
 import type { Budget } from '../types';
 import { useAuth } from './AuthContext';
-import {
-  createLocalBudgetStorage,
-  GUEST_BUDGETS_KEY, GUEST_ACTIVE_KEY,
-} from '../lib/localStorageAdapter';
-import { createSupabaseBudgetStorage, initializeNewUser } from '../lib/supabaseAdapter';
+import { createLocalBudgetStorage, GUEST_ACTIVE_KEY } from '../lib/localStorageAdapter';
+import { createSupabaseBudgetStorage, initializeNewUser, createSupabaseAdapter } from '../lib/supabaseAdapter';
+import { createLocalStorageAdapter } from '../lib/localStorageAdapter';
 
-const ACCENT = '#4A6FA5';
+const DEFAULT_COLOR = '#4A6FA5';
 const DEFAULT_BUDGET_KEY = 'finance:defaultBudget';
 
 // ── Context type ──────────────────────────────────────────────────────────────
@@ -34,7 +32,7 @@ const BudgetContext = createContext<BudgetContextValue | null>(null);
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function BudgetProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [activeBudgetId, setActiveBudgetIdState] = useState<string | null>(null);
   const [defaultBudgetId, setDefaultBudgetIdState] = useState<string | null>(
@@ -49,6 +47,10 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   const refreshBudgets = useCallback(async () => {
+    // Solange die Sitzung noch nicht gelesen ist, nicht als Gast losrennen:
+    // der Gast-Durchlauf legte sonst ein Phantom-Budget im localStorage an und
+    // überschrieb den zuletzt aktiven Bereich des eingeloggten Nutzers.
+    if (authLoading) return;
     try {
       setLoadingBudgets(true);
 
@@ -67,7 +69,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
           name: 'Persönlich',
           type: 'personal',
           startingBalance: 0,
-          color: ACCENT,
+          color: DEFAULT_COLOR,
           createdAt: new Date().toISOString(),
         };
         await storage.addBudget(defaultBudget);
@@ -75,6 +77,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       }
 
       setBudgets(list);
+      if (list.length === 0) throw new Error('Kein Bereich vorhanden.');
 
       // Prefer pinned default budget, then last active, then first
       const storedDefault = localStorage.getItem(DEFAULT_BUDGET_KEY);
@@ -90,7 +93,7 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoadingBudgets(false);
     }
-  }, [getStorage]);
+  }, [getStorage, user, authLoading]);
 
   useEffect(() => { refreshBudgets(); }, [refreshBudgets]);
 
@@ -118,6 +121,12 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
       createdAt: new Date().toISOString(),
     };
     await getStorage().addBudget(b);
+    // Den Kontostand rechnet überall settings.starting_balance, nicht
+    // budgets.starting_balance — also dort ablegen, sonst ist die Eingabe wirkungslos.
+    if (startingBalance !== 0) {
+      const scoped = user ? createSupabaseAdapter(user.id, b.id) : createLocalStorageAdapter(b.id);
+      await scoped.updateSettings({ startingBalance });
+    }
     setBudgets(prev => [...prev, b]);
     return b;
   }
@@ -130,14 +139,14 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
   async function deleteBudget(id: string) {
     if (budgets.length <= 1) throw new Error('Das letzte Budget kann nicht gelöscht werden.');
     await getStorage().deleteBudget(id);
-    setBudgets(prev => {
-      const next = prev.filter(b => b.id !== id);
-      // If active budget was deleted, switch to first remaining
-      if (activeBudgetId === id && next.length > 0) {
-        setActiveBudgetId(next[0].id);
-      }
-      return next;
-    });
+    const next = budgets.filter(b => b.id !== id);
+    setBudgets(next);
+    // Aktiven oder gepinnten Bereich nicht auf eine gelöschte ID zeigen lassen.
+    if (activeBudgetId === id && next.length > 0) setActiveBudgetId(next[0].id);
+    if (defaultBudgetId === id) {
+      setDefaultBudgetIdState(null);
+      localStorage.removeItem(DEFAULT_BUDGET_KEY);
+    }
   }
 
   const activeBudget = budgets.find(b => b.id === activeBudgetId) ?? null;
@@ -157,6 +166,3 @@ export function useBudget(): BudgetContextValue {
   if (!ctx) throw new Error('useBudget muss innerhalb von BudgetProvider verwendet werden');
   return ctx;
 }
-
-// Re-export key for use in other files
-export { GUEST_BUDGETS_KEY };

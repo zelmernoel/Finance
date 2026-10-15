@@ -42,7 +42,10 @@ Das Anlegen von Sparttöpfen hängt zusätzlich am Schalter
 *Einstellungen → KI-Zugriff → Sparttöpfe anlegen*
 (`settings.mcp_allow_pot_creation`). Er wird zweifach geprüft: im Tool, mit
 klarer Fehlermeldung, und in der INSERT-Policy auf `savings_pots` — am Tool
-vorbei geht es also nicht.
+vorbei geht es also nicht. Ausnahme ist der **Steuertopf**: ihn legt der
+Trigger aus `tax.sql` beim ersten Buchen mit Steuer selbst an (SECURITY
+DEFINER, am Schalter vorbei) — er ist kein Wunsch von Claude, sondern die
+Buchhaltung der Steuer, die in der Buchung steckt.
 
 **Schicht 1 — RLS. Die tragende.**
 Ein Token mit `client_id`-Claim gilt als Fremdclient. Access-Tokens des
@@ -317,19 +320,22 @@ kam und deshalb auch kein Trigger feuerte.
 Ein erfolgreicher `create-transaction` erzeugt also mindestens zwei Zeilen:
 den Aufruf (`read`) und die Buchung (`insert`).
 
-### 2. Spartopf-Verteilung — bei Einnahmen
+### 2. Spartopf-Verteilung — bei jeder Buchung mit Steuer, Prozent-Töpfe bei Einnahmen
 
-Bei einem MCP-Insert mit `type = 'income'` und Sparttöpfen im selben Bereich:
+Seit `tax.sql` (Oktober 2026) gilt für jeden Insert auf `transactions`:
 
 | Tabelle | was passiert | ausgelöst durch |
 |---|---|---|
 | `transactions` | die Buchung selbst, `source = 'mcp'` | der MCP-Server |
-| `pot_allocations` | eine Zeile je Topf mit `allocation_percent > 0` | `trg_distribute_income` → `apply_pot_distribution()` |
-| `savings_pots` | `current_amount` und `updated_at` steigen je Topf | `trg_sync_pot_amount` → `sync_pot_current_amount()` |
-| `activity_log` | eine `update`-Zeile je berührtem Topf | `trg_log_savings_pots` |
+| `savings_pots` | bei `tax_amount > 0` entsteht der Steuertopf (`kind = 'tax'`), falls noch keiner da ist | `apply_pot_distribution()` → `ensure_tax_pot()` |
+| `pot_allocations` | bei `tax_amount > 0` eine Zeile `kind = 'tax'`: Einnahme `+tax_amount`, Ausgabe `−tax_amount` (Vorsteuer) | `trg_distribute_income` → `apply_pot_distribution()` |
+| `pot_allocations` | bei Einnahmen zusätzlich eine Zeile `kind = 'percent'` je manuellem Topf mit `allocation_percent > 0`, gerechnet vom **Netto** (`amount − tax_amount`) | dieselbe Funktion |
+| `savings_pots` | `current_amount` und `updated_at` je berührtem Topf | `trg_sync_pot_amount` → `sync_pot_current_amount()` |
+| `activity_log` | eine `update`-Zeile je berührtem Topf (plus `insert` für einen neuen Steuertopf) | `trg_log_savings_pots` |
 
-Bei `type = 'expense'` passiert nichts davon — `apply_pot_distribution()`
-steigt bei allem ausser positiven Einnahmen sofort aus.
+Eine Ausgabe ohne Steuer löst nichts davon aus. Eine Buchung mit
+`tax_amount = amount` ist eine reine Steuerzahlung ans Finanzamt (bzw. eine
+Erstattung) und bewegt nur den Steuertopf.
 
 **Zur Menge:** Eine Einnahme mit drei befüllten Töpfen erzeugt eine
 `insert`-Zeile für die Buchung plus drei `update`-Zeilen für die Töpfe. Das
@@ -337,8 +343,9 @@ ist gewollt — jede Änderung wird protokolliert — macht das Log bei vielen
 Töpfen aber gesprächig.
 
 Beim **Löschen** einer solchen Buchung in der App räumt der FK-CASCADE auf
-`pot_allocations.income_transaction_id` auf, und `sync_pot_current_amount()`
-bucht `current_amount` zurück. Claude kann nicht löschen; das betrifft nur dich.
+`pot_allocations.transaction_id` auf, und `sync_pot_current_amount()`
+bucht `current_amount` zurück. Beim **Ändern** von Betrag, Steuer, Typ oder
+Bereich verwirft `trg_redistribute_income` die alte Verteilung und rechnet neu. Claude kann nicht löschen; das betrifft nur dich.
 Notizen verschwinden auf demselben Weg mit ihrer Transaktion.
 
 **Deshalb meldet `create-transaction` die Verteilung mit.** Die Antwort enthält
@@ -346,9 +353,9 @@ Notizen verschwinden auf demselben Weg mit ihrer Transaktion.
 ergänzt:
 
 ```
-Eingetragen: 2.000,00 € Einnahme, Kategorie Lohn, 03.09.2026,
-Budget Persönlich — ID abc123 Davon automatisch auf Sparttöpfe verteilt:
-600,00 € (Notgroschen 400,00 €, Urlaub 200,00 €).
+Eingetragen: 1.499,40 € Einnahme (netto 1.260,00 €, Steuer 239,40 €),
+Kategorie Anzahlung, 11.09.2026, Budget NZ Studio — ID abc123
+Spartopf-Buchungen: Umsatzsteuer Umsatzsteuer 239,40 €, Rücklage Anteil 126,00 €.
 ```
 
 Lässt sich die Verteilung nicht nachlesen, steht das ebenfalls in der Antwort —
@@ -388,19 +395,25 @@ Nicht Definer, der Vollständigkeit halber: `public.jwt_claims()` und
 `public.custom_access_token_hook(jsonb)` ist ebenfalls Invoker und läuft
 ausschliesslich als `supabase_auth_admin`.
 
-### Bestand aus `savings-pots.sql` — nur gemeldet, nicht geändert
+### Bestand aus `savings-pots.sql` / `tax.sql`
 
-Diese fünf existieren seit dem Spartöpfe-Feature. Ihr Eigentümer ist die
-Rolle, die `savings-pots.sql` ausgeführt hat (in aller Regel `postgres`) —
-also eine Rolle mit sehr weitreichenden Rechten.
+Diese Funktionen gehören zum Spartöpfe-Feature; `tax.sql` hat sie ersetzt
+bzw. ergänzt. Ihr Eigentümer ist die Rolle, die die Datei ausgeführt hat (in
+aller Regel `postgres`) — also eine Rolle mit sehr weitreichenden Rechten.
 
 | Funktion | Definer | `search_path` | schreibt in |
 |---|---|---|---|
 | `sync_pot_current_amount()` | ja | `public, pg_temp` | `savings_pots` |
-| `apply_pot_distribution(tx transactions)` | ja | `public, pg_temp` | `pot_allocations` |
+| `ensure_tax_pot(uuid, uuid)` | ja | `public, pg_temp` | `savings_pots` (legt den Steuertopf an) |
+| `apply_pot_distribution(tx transactions)` | ja | `public, pg_temp` | `pot_allocations`, mittelbar `savings_pots` |
 | `tx_insert_distribute()` | ja | `public, pg_temp` | mittelbar `pot_allocations`, `savings_pots` |
 | `tx_update_redistribute()` | ja | `public, pg_temp` | `pot_allocations` (löscht und legt neu an) |
 | `check_pot_allocation_sum()` | **nein** (Invoker) | nicht gesetzt | nichts (nur Prüfung) |
+
+`ensure_tax_pot` und `apply_pot_distribution` sind per PostgREST als RPC
+erreichbar, deshalb entzieht `tax.sql` ihnen EXECUTE für `PUBLIC`, `anon`,
+`authenticated` und `service_role` (gleiches Muster wie Abschnitt 3). Die
+Trigger rufen sie weiterhin als Eigentümer auf.
 
 Zwei Punkte, die du separat entscheiden solltest — ich habe hier bewusst
 nichts angefasst:
@@ -450,7 +463,7 @@ curl -s -X POST https://<PROJECT-REF>.supabase.co/functions/v1/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-Erwartet: elf Tools, darunter `create-transaction`.
+Erwartet: 14 Tools, darunter `create-transaction`.
 
 ### Die Sperre wirkt
 
@@ -507,7 +520,9 @@ die Fehlermeldung den noch freien Anteil. Danach Read-after-write.
 - `category` kommt exakt so in `categories` vor (gleiches Budget, gleicher Typ),
   sonst Fehler mit Liste der gültigen Namen — nichts wird angelegt,
   normalisiert oder geraten
-- `amount` > 0, ≤ 1000000, höchstens zwei Nachkommastellen
+- `amount` > 0, ≤ 1000000, höchstens zwei Nachkommastellen (brutto)
+- `tax_amount` bzw. `tax_rate`: nicht beide; `0 ≤ tax_amount ≤ amount`; nur in
+  Firmenbereichen (`budgets.type = 'business'`), sonst Fehler
 - `date` gültig und zwischen `2000-01-01` und heute + 1 Jahr
 
 Danach wird die Zeile über ihre ID neu gelesen, die ausgelöste

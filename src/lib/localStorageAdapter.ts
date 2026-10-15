@@ -2,6 +2,7 @@ import type {
   Transaction, Category, Settings, Budget, RecurringTransaction,
 } from '../types';
 import type { StorageAdapter, BudgetStorage } from './storage';
+import { defaultCategoriesFor } from './defaultCategories';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -27,22 +28,6 @@ function txKey(budgetId: string)  { return `ft_${budgetId}_tx`; }
 function catKey(budgetId: string) { return `ft_${budgetId}_cats`; }
 function setKey(budgetId: string) { return `ft_${budgetId}_settings`; }
 function recKey(budgetId: string) { return `ft_${budgetId}_recurring`; }
-
-// ── Default seeded categories ─────────────────────────────────────────────────
-
-const DEFAULT_CATEGORIES: Category[] = [
-  { id: 'cat-exp-1', name: 'Lebensmittel', type: 'expense' },
-  { id: 'cat-exp-2', name: 'Transport',    type: 'expense' },
-  { id: 'cat-exp-3', name: 'Freizeit',     type: 'expense' },
-  { id: 'cat-exp-4', name: 'Kleidung',     type: 'expense' },
-  { id: 'cat-exp-5', name: 'Technik',      type: 'expense' },
-  { id: 'cat-exp-6', name: 'Bildung',      type: 'expense' },
-  { id: 'cat-exp-7', name: 'Sonstiges',    type: 'expense' },
-  { id: 'cat-inc-1', name: 'Lohn',         type: 'income'  },
-  { id: 'cat-inc-2', name: 'Nebeneinkommen', type: 'income' },
-  { id: 'cat-inc-3', name: 'Geschenk',     type: 'income'  },
-  { id: 'cat-inc-4', name: 'Sonstiges',    type: 'income'  },
-];
 
 // ── LocalStorageAdapter ───────────────────────────────────────────────────────
 
@@ -84,18 +69,20 @@ export function createLocalStorageAdapter(budgetId: string): StorageAdapter {
     async getCategories() {
       const stored = ls<Category[] | null>(catKey(budgetId), null);
       if (!stored) {
-        lsSet(catKey(budgetId), DEFAULT_CATEGORIES);
-        return DEFAULT_CATEGORIES;
+        const type = ls<Budget[]>(GUEST_BUDGETS_KEY, []).find(b => b.id === budgetId)?.type ?? 'personal';
+        const seeded = defaultCategoriesFor(type);
+        lsSet(catKey(budgetId), seeded);
+        return seeded;
       }
       return stored;
     },
     async addCategory(c) {
-      const list = ls<Category[]>(catKey(budgetId), DEFAULT_CATEGORIES);
+      const list = ls<Category[]>(catKey(budgetId), []);
       lsSet(catKey(budgetId), [...list, c]);
       return c;
     },
     async updateCategory(id, patch) {
-      const list = ls<Category[]>(catKey(budgetId), DEFAULT_CATEGORIES);
+      const list = ls<Category[]>(catKey(budgetId), []);
       const updated = list.map(c => c.id === id ? { ...c, ...patch } : c);
       lsSet(catKey(budgetId), updated);
       const found = updated.find(c => c.id === id);
@@ -103,7 +90,7 @@ export function createLocalStorageAdapter(budgetId: string): StorageAdapter {
       return found;
     },
     async deleteCategory(id) {
-      const list = ls<Category[]>(catKey(budgetId), DEFAULT_CATEGORIES);
+      const list = ls<Category[]>(catKey(budgetId), []);
       lsSet(catKey(budgetId), list.filter(c => c.id !== id));
     },
 

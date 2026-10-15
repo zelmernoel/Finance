@@ -3,13 +3,13 @@ import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
-import type { Category, Transaction } from '../types';
+import type { Category, SavingsPot, Transaction } from '../types';
 import Card from '../components/Card';
 import ErrorBoundary from '../components/ErrorBoundary';
 import EmptyState from '../components/EmptyState';
 import {
   formatEuro, getCurrentMonth, filterByMonth, getLast12Months,
-  getCustomMonthRange,
+  getCustomMonthRange, addMonths,
   groupByCategory, computeBalance, CHART_INCOME, CHART_EXPENSE, ACCENT,
   formatAxisEuro
 } from '../utils';
@@ -20,9 +20,12 @@ import { useBudget } from '../context/BudgetContext';
 interface Props {
   transactions: Transaction[];
   categories: Category[];
+  /** Sparttöpfe des Bereichs — ihr Bestand ist reserviert, nicht verfügbar. */
+  pots: SavingsPot[];
   startingBalance: number;
   userName: string;
   onNavigateToNew: () => void;
+  onNavigateToPots?: () => void;
   /** Klick auf einen Monatsbalken → Auswertung dieses Monats. */
   onNavigateToMonth?: (year: number, month: number) => void;
   monthStart?: number;
@@ -36,9 +39,11 @@ const DONUT_LABELS: Record<DonutRange, string> = {
   all: 'Gesamt',
 };
 
-function KpiCard({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
+function KpiCard({ label, value, hint, highlight = false, onClick }: {
+  label: string; value: string; hint?: string; highlight?: boolean; onClick?: () => void;
+}) {
   return (
-    <Card className="p-4 md:p-5">
+    <Card className="p-4 md:p-5" onClick={onClick}>
       <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">{label}</p>
       <p
         className={`text-xl md:text-2xl font-semibold tracking-tight ${highlight ? '' : 'text-gray-900 dark:text-gray-100'}`}
@@ -46,6 +51,7 @@ function KpiCard({ label, value, highlight = false }: { label: string; value: st
       >
         {value}
       </p>
+      {hint && <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 truncate">{hint}</p>}
     </Card>
   );
 }
@@ -54,8 +60,8 @@ function KpiCard({ label, value, highlight = false }: { label: string; value: st
 const euroFormatter = (value: any) => formatEuro(typeof value === 'number' ? value : 0);
 
 export default function Dashboard({
-  transactions, categories, startingBalance, userName,
-  onNavigateToNew, onNavigateToMonth, monthStart = 1,
+  transactions, categories, pots, startingBalance, userName,
+  onNavigateToNew, onNavigateToPots, onNavigateToMonth, monthStart = 1,
 }: Props) {
   const [donutRange, setDonutRange] = useState<DonutRange>('current');
   const { year, month } = getCurrentMonth();
@@ -80,6 +86,13 @@ export default function Dashboard({
   const balance        = useMemo(() => startingBalance + computeBalance(transactions), [transactions, startingBalance]);
   const savingsRate    = currentIncome > 0 ? ((currentIncome - currentExpense) / currentIncome) * 100 : 0;
 
+  // Verfügbar = Kontostand minus alles, was in Töpfen liegt. Der Steuertopf
+  // zählt mit: dieses Geld gehört dem Finanzamt. Ein negativer Steuertopf
+  // (Vorsteuerüberhang) erhöht das Verfügbare — die Erstattung kommt.
+  const inPots    = useMemo(() => pots.reduce((s, p) => s + p.currentAmount, 0), [pots]);
+  const available = balance - inPots;
+  const taxPot    = pots.find(p => p.kind === 'tax');
+
   const barData = useMemo(() => getLast12Months().map(({ year, month, label }) => {
     const monthTx = filterByMonth(transactions, year, month);
     return {
@@ -91,11 +104,13 @@ export default function Dashboard({
 
   const lineData = useMemo(() => {
     const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
-    let running = startingBalance;
-    return sorted.map((t) => {
-      running += t.type === 'income' ? t.amount : -t.amount;
-      return { date: t.date, Kontostand: running };
-    });
+    const points: { date: string; Kontostand: number }[] = [];
+    sorted.reduce((running, t) => {
+      const next = running + (t.type === 'income' ? t.amount : -t.amount);
+      points.push({ date: t.date, Kontostand: next });
+      return next;
+    }, startingBalance);
+    return points;
   }, [transactions, startingBalance]);
 
   const donutData = useMemo(() => {
@@ -103,11 +118,10 @@ export default function Dashboard({
     if (donutRange === 'current') {
       filtered = currentMonthTx.filter(t => t.type === 'expense');
     } else if (donutRange === 'last3') {
-      const cutoff = new Date(year, month - 4, 1);
-      filtered = transactions.filter(t => {
-        const d = new Date(t.date);
-        return t.type === 'expense' && d >= cutoff;
-      });
+      // Ab dem 1. des Monats vor drei Monaten (wie bisher), als reiner
+      // String-Vergleich — kein Date-Objekt, keine Zeitzonenfalle.
+      const from = addMonths(`${year}-${String(month).padStart(2, '0')}-01`, -3);
+      filtered = transactions.filter(t => t.type === 'expense' && t.date >= from);
     } else {
       filtered = transactions.filter(t => t.type === 'expense');
     }
@@ -137,7 +151,15 @@ export default function Dashboard({
 
       {/* KPI Row — 2x2 on mobile, 4 columns on lg */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-        <KpiCard label="Kontostand aktuell" value={formatEuro(balance)} highlight />
+        {pots.length > 0 ? (
+          <KpiCard
+            label="Verfügbar" value={formatEuro(available)} highlight
+            hint={`Kontostand ${formatEuro(balance)} · ${formatEuro(inPots)} in Töpfen${taxPot ? ` (Steuer ${formatEuro(taxPot.currentAmount)})` : ''}`}
+            onClick={onNavigateToPots}
+          />
+        ) : (
+          <KpiCard label="Kontostand aktuell" value={formatEuro(balance)} highlight />
+        )}
         <KpiCard label="Einnahmen (lfd. Monat)" value={formatEuro(currentIncome)} />
         <KpiCard label="Ausgaben (lfd. Monat)" value={formatEuro(currentExpense)} />
         <KpiCard label="Sparquote" value={`${savingsRate.toFixed(1)} %`} />

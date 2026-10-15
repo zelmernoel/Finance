@@ -1,16 +1,17 @@
 import React, { useMemo, useEffect, useCallback } from 'react';
 import { useRef, useState, type FormEvent, type ChangeEvent } from 'react';
 import { Link } from 'react-router-dom';
-import type { Category, Settings, Transaction } from '../types';
+import type { Budget, Category, Frequency, Settings, Transaction } from '../types';
 import Card from '../components/Card';
-import { ACCENT, formatEuro, downloadCSV, downloadJSON, parseImportCSV, computeBalance, todayISO } from '../utils';
+import { ACCENT, formatEuro, downloadCSV, downloadJSON, parseImportCSV, computeBalance, todayISO, getCustomMonthRange } from '../utils';
+import { amountToInput, parseAmount } from '../lib/money';
 import { exportTransactionsPDF } from '../lib/exportPDF';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, ACCENT_PRESETS, PALETTES, LOOKS, ANALYSIS_SECTIONS, palettePinnedTheme } from '../hooks/useTheme';
 import type { Theme } from '../hooks/useTheme';
 import { useBudget } from '../context/BudgetContext';
 import { useChartTheme } from '../hooks/useChartTheme';
-import { loadCategoryColors, saveCategoryColors } from '../hooks/useCategoryColors';
+import { loadCategoryColors, saveCategoryColors, loadCategoryOrder, saveCategoryOrder, sortByCategoryOrder } from '../hooks/useCategoryColors';
 import { createSupabaseAdapter } from '../lib/supabaseAdapter';
 import { createLocalStorageAdapter } from '../lib/localStorageAdapter';
 import { useNavigate } from 'react-router-dom';
@@ -23,8 +24,10 @@ interface Props {
   settings: Settings;
   categories: Category[];
   transactions: Transaction[];
+  /** Nur im Firmenbereich lässt sich je Kategorie ein Steuersatz vorbelegen. */
+  budgetType: Budget['type'];
   onSaveSettings: (s: Partial<Omit<Settings, 'id'>>) => Promise<void>;
-  onUpdateCategory: (id: string, patch: { monthlyBudget?: number }) => Promise<void>;
+  onUpdateCategory: (id: string, patch: Partial<Omit<Category, 'id' | 'type'>>) => Promise<void>;
   onDeleteCategory: (id: string) => Promise<void>;
   onAddCategory: (name: string, type: 'income' | 'expense') => Promise<void>;
   onImportTransactions: (txs: Transaction[]) => Promise<void>;
@@ -95,8 +98,21 @@ const inputCls = 'w-full border border-gray-200 dark:border-gray-600 rounded px-
 
 // ── main component ────────────────────────────────────────────────────────────
 
+const FREQ_OPTIONS: { value: Frequency | ''; label: string }[] = [
+  { value: '', label: 'Kein Dauerauftrag' },
+  { value: 'daily', label: 'Täglich' },
+  { value: 'weekly', label: 'Wöchentlich' },
+  { value: 'monthly', label: 'Monatlich' },
+  { value: 'yearly', label: 'Jährlich' },
+];
+const TAX_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Keine Steuer' },
+  { value: '19', label: '19 % enthalten' },
+  { value: '7', label: '7 % enthalten' },
+];
+
 export default function SettingsPage({
-  settings, categories, transactions,
+  settings, categories, transactions, budgetType,
   onSaveSettings, onDeleteCategory, onAddCategory,
   onUpdateCategory, onImportTransactions, onResetAllTransactions,
   onDeleteTransactionsByPeriod,
@@ -133,7 +149,9 @@ export default function SettingsPage({
   // wählbar (Vorgabe: Hauptbereich), denn eine anteilige Verteilung würde
   // Buchungen in Bereichen erzeugen, die gar nicht abweichen.
   const [reconcileScope, setReconcileScope] = useState<'budget' | 'all'>('budget');
-  const [allBalances, setAllBalances] = useState<Record<string, number> | null>(null);
+  // null je Bereich = konnte nicht geladen werden; dann wird nicht abgeglichen
+  // (vorher zählte ein Ladefehler als 0 € und die Korrektur buchte die Differenz).
+  const [allBalances, setAllBalances] = useState<Record<string, number | null> | null>(null);
   const [allBalancesLoading, setAllBalancesLoading] = useState(false);
   const [reconcileTarget, setReconcileTarget] = useState<string | null>(null);
 
@@ -161,7 +179,7 @@ export default function SettingsPage({
         const exp = txs.filter(t => t.type === 'expense').reduce((a, t) => a + t.amount, 0);
         return [b.id, (s.startingBalance ?? 0) + inc - exp] as const;
       } catch {
-        return [b.id, 0] as const;
+        return [b.id, null] as const;
       }
     }));
     setAllBalances(Object.fromEntries(entries));
@@ -173,17 +191,22 @@ export default function SettingsPage({
     if (reconcileScope === 'all') loadAllBalances();
   }, [reconcileScope, loadAllBalances, reloadKey]);
 
-  const totalAllBalance = allBalances
-    ? Object.values(allBalances).reduce((s, v) => s + v, 0)
+  const balanceValues = allBalances ? Object.values(allBalances) : null;
+  const totalAllBalance = balanceValues && balanceValues.every(v => v !== null)
+    ? balanceValues.reduce<number>((s, v) => s + (v ?? 0), 0)
     : null;
+  const anyBalanceFailed = balanceValues?.some(v => v === null) ?? false;
 
   const baseBalance = reconcileScope === 'all' ? totalAllBalance : budgetBalance;
+  // Zielbereich nur, wenn es ihn noch gibt — der gepinnte Hauptbereich im
+  // localStorage kann längst gelöscht sein.
+  const exists = (id: string | null) => (id && budgets.some(b => b.id === id) ? id : null);
   const targetBudgetId = reconcileScope === 'all'
-    ? (reconcileTarget ?? defaultBudgetId ?? activeBudgetId)
+    ? (exists(reconcileTarget) ?? exists(defaultBudgetId) ?? activeBudgetId)
     : activeBudgetId;
   const targetBudget = budgets.find(b => b.id === targetBudgetId);
 
-  const countedValue = countedInput.trim() ? parseFloat(countedInput.replace(',', '.')) : NaN;
+  const countedValue = parseAmount(countedInput) ?? NaN;
   const reconcileDiff = isNaN(countedValue) || baseBalance === null
     ? null
     : Math.round((countedValue - baseBalance) * 100) / 100;
@@ -193,12 +216,10 @@ export default function SettingsPage({
     setReconciling(true);
     setReconcileError(null);
     try {
-      const today = new Date();
-      const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       const scopeNote = reconcileScope === 'all' ? 'alle Bereiche' : (activeBudget?.name ?? 'Bereich');
       const tx: Transaction = {
         id: crypto.randomUUID(),
-        date: iso,
+        date: todayISO(),
         type: reconcileDiff > 0 ? 'income' : 'expense',
         amount: Math.abs(reconcileDiff),
         category: 'Korrektur',
@@ -281,6 +302,8 @@ export default function SettingsPage({
     () => loadCategoryColors(activeBudgetId)
   );
   const [colorPickerFor, setColorPickerFor] = useState<string | null>(null);
+  const [defaultsFor, setDefaultsFor]       = useState<string | null>(null);
+  const isBusiness = budgetType === 'business';
 
   function setCatColor(id: string, color: string | null) {
     const next = { ...catColorMap };
@@ -290,16 +313,12 @@ export default function SettingsPage({
   }
 
   // category order (localStorage, keyed by budgetId)
-  const orderKey = `catOrder:${activeBudgetId ?? 'guest'}`;
-  const [catOrderMap, setCatOrderMap] = useState<Record<string, number>>(() => {
-    try { return JSON.parse(localStorage.getItem(orderKey) ?? '{}'); }
-    catch { return {}; }
-  });
+  const [catOrderMap, setCatOrderMap] = useState<Record<string, number>>(() => loadCategoryOrder(activeBudgetId));
   const [movedInfo, setMovedInfo] = useState<{ id: string; dir: 'up' | 'down' } | null>(null);
 
   function saveCatOrder(map: Record<string, number>) {
     setCatOrderMap(map);
-    localStorage.setItem(orderKey, JSON.stringify(map));
+    saveCategoryOrder(activeBudgetId, map);
   }
 
   // csv import
@@ -343,18 +362,19 @@ export default function SettingsPage({
   const expenseCats = categories.filter(c => c.type === 'expense');
   const incomeCats  = categories.filter(c => c.type === 'income');
   const rawActiveCats = catTab === 'expense' ? expenseCats : incomeCats;
-  const activeCats = useMemo(() =>
-    [...rawActiveCats].sort((a, b) => (catOrderMap[a.id] ?? 999) - (catOrderMap[b.id] ?? 999)),
-    [rawActiveCats, catOrderMap]
-  );
+  const activeCats = useMemo(() => sortByCategoryOrder(rawActiveCats, catOrderMap), [rawActiveCats, catOrderMap]);
 
+  // Erst die ganze Liste durchnummerieren, dann tauschen. Vorher bekamen nur
+  // die zwei getauschten Einträge eine Position, der Rest blieb bei 999 —
+  // und sprang beim nächsten Rendern an eine andere Stelle.
   function moveCat(id: string, dir: 'up' | 'down') {
     const idx = activeCats.findIndex(c => c.id === id);
     const swapIdx = dir === 'up' ? idx - 1 : idx + 1;
     if (swapIdx < 0 || swapIdx >= activeCats.length) return;
+    const reordered = [...activeCats];
+    [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
     const newMap = { ...catOrderMap };
-    newMap[activeCats[idx].id]     = swapIdx;
-    newMap[activeCats[swapIdx].id] = idx;
+    reordered.forEach((c, i) => { newMap[c.id] = i; });
     saveCatOrder(newMap);
     setMovedInfo({ id, dir });
     setTimeout(() => setMovedInfo(null), 260);
@@ -367,10 +387,11 @@ export default function SettingsPage({
     setSaving(true);
     setSaveError(null);
     try {
-      const parsed = parseFloat(balance.replace(',', '.'));
+      const parsed = balance.trim() ? parseAmount(balance) : 0;
+      if (parsed === null) throw new Error('Der Anfangssaldo ist keine gültige Zahl.');
       await onSaveSettings({
         name: name.trim(),
-        startingBalance: isNaN(parsed) ? 0 : parsed,
+        startingBalance: parsed,
         monthStart: Math.min(28, Math.max(1, monthStart)),
       });
       setSaved(true);
@@ -399,20 +420,21 @@ export default function SettingsPage({
     );
   }
 
+  // Laufender Abrechnungsmonat — mit dem eingestellten Monatsbeginn, wie im Dashboard.
   function getMonthlyTx() {
-    const now = new Date();
-    const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    return transactions.filter(t => t.date.startsWith(ym));
+    const { from, to } = getCustomMonthRange(settings.monthStart ?? 1);
+    return transactions.filter(t => t.date >= from && t.date <= to);
   }
 
   function handleExportMonthlyCSV() { downloadCSV(getMonthlyTx()); }
+  // Der vierte Parameter ist der Bereichsname (steht im PDF-Kopf und Dateinamen);
+  // der Zeitraum gehört in die Filter.
   function handleExportMonthlyPDF() {
-    const now = new Date();
-    const label = now.toLocaleDateString('de-DE', { month: 'long', year: 'numeric' });
-    exportTransactionsPDF(getMonthlyTx(), {}, settings.name, `Monat ${label}`);
+    const { from, to } = getCustomMonthRange(settings.monthStart ?? 1);
+    exportTransactionsPDF(getMonthlyTx(), { dateFrom: from, dateTo: to }, settings.name, activeBudget?.name ?? 'Bereich');
   }
   function handleExportAllPDF() {
-    exportTransactionsPDF([...transactions].sort((a, b) => a.date.localeCompare(b.date)), {}, settings.name, 'Alle Transaktionen');
+    exportTransactionsPDF([...transactions].sort((a, b) => a.date.localeCompare(b.date)), {}, settings.name, activeBudget?.name ?? 'Bereich');
   }
 
   async function handleDeleteByPeriod() {
@@ -584,7 +606,7 @@ export default function SettingsPage({
               </span>
               <span className="text-sm font-medium text-gray-900 dark:text-gray-100 tabular-nums">
                 {baseBalance === null
-                  ? (allBalancesLoading ? 'Lädt…' : '—')
+                  ? (allBalancesLoading ? 'Lädt…' : anyBalanceFailed ? 'Ein Bereich konnte nicht geladen werden' : '—')
                   : formatEuro(baseBalance)}
               </span>
             </div>
@@ -596,7 +618,7 @@ export default function SettingsPage({
                   <span key={b.id} className="flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500">
                     <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />
                     {b.name}
-                    <span className="tabular-nums">{formatEuro(allBalances[b.id] ?? 0)}</span>
+                    <span className="tabular-nums">{allBalances[b.id] === null ? 'Fehler' : formatEuro(allBalances[b.id] ?? 0)}</span>
                   </span>
                 ))}
               </div>
@@ -612,7 +634,7 @@ export default function SettingsPage({
                   type="text" inputMode="decimal"
                   value={countedInput}
                   onChange={e => { setCountedInput(e.target.value); setReconcileDone(null); }}
-                  placeholder={baseBalance === null ? '0,00' : formatEuro(baseBalance).replace(' €', '')}
+                  placeholder={baseBalance === null ? '0,00' : amountToInput(baseBalance) || '0'}
                   className={`${inputCls} pl-7`}
                 />
               </div>
@@ -921,7 +943,7 @@ export default function SettingsPage({
           </p>
         </AccordionSection>
 
-        <AccordionSection title="Kategorien" subtitle="Anlegen, umsortieren, Farben und Monatsbudgets">
+        <AccordionSection title="Kategorien" subtitle="Anlegen, umsortieren, Farben, Monatsbudgets und Vorbelegungen">
 
           {/* Tabs */}
           <div className="flex rounded border border-gray-200 dark:border-gray-600 overflow-hidden mb-5">
@@ -1005,14 +1027,34 @@ export default function SettingsPage({
                     ? { backgroundColor: catColorMap[c.id] }
                     : { border: '1.5px dashed', borderColor: chartTheme.tick }}
                 />
-                <span className="text-sm text-gray-800 dark:text-gray-200 flex-1">{c.name}</span>
+                <span className="text-sm text-gray-800 dark:text-gray-200 flex-1 min-w-0">
+                  <span className="block truncate">{c.name}</span>
+                  {(c.defaultFrequency || (isBusiness && c.defaultTaxRate)) && (
+                    <span className="block text-[11px] text-gray-400 dark:text-gray-500 truncate">
+                      {[
+                        c.defaultFrequency ? FREQ_OPTIONS.find(o => o.value === c.defaultFrequency)?.label : null,
+                        isBusiness && c.defaultTaxRate ? `${c.defaultTaxRate} % USt` : null,
+                      ].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setDefaultsFor(defaultsFor === c.id ? null : c.id)}
+                  title="Vorbelegung im Buchungs-Wizard"
+                  className={`text-xs px-1.5 py-0.5 rounded border transition-colors ${defaultsFor === c.id ? 'border-transparent text-white' : 'border-gray-200 dark:border-gray-600 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+                  style={defaultsFor === c.id ? { backgroundColor: ACCENT } : undefined}
+                >
+                  Vorbelegung
+                </button>
                 <span className="text-xs text-gray-400 dark:text-gray-500">
                   {c.monthlyBudget ? (
                     <button
                       onClick={() => {
-                        const v = prompt(`Budget für "${c.name}" (€):`, String(c.monthlyBudget));
-                        const n = parseFloat((v ?? '').replace(',', '.'));
-                        if (!isNaN(n) && n >= 0) onUpdateCategory(c.id, { monthlyBudget: n || undefined });
+                        const v = prompt(`Budget für "${c.name}" (€):`, amountToInput(c.monthlyBudget));
+                        if (v === null) return;
+                        const n = v.trim() ? parseAmount(v) : 0;
+                        if (n !== null && n >= 0) onUpdateCategory(c.id, { monthlyBudget: n || undefined });
                       }}
                       className="underline underline-offset-2 hover:text-gray-700 dark:hover:text-gray-300"
                     >
@@ -1022,8 +1064,8 @@ export default function SettingsPage({
                     <button
                       onClick={() => {
                         const v = prompt(`Monatsbudget für "${c.name}" (€):`);
-                        const n = parseFloat((v ?? '').replace(',', '.'));
-                        if (!isNaN(n) && n > 0) onUpdateCategory(c.id, { monthlyBudget: n });
+                        const n = parseAmount(v ?? '');
+                        if (n !== null && n > 0) onUpdateCategory(c.id, { monthlyBudget: n });
                       }}
                       className="hover:text-gray-700 dark:hover:text-gray-300"
                     >+ Budget</button>
@@ -1068,6 +1110,37 @@ export default function SettingsPage({
                   </div>
                   <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
                     „Standard" vergibt automatisch einen Ton deiner Akzentfarbe.
+                  </p>
+                </li>
+              ),
+              defaultsFor === c.id && (
+                <li key={`${c.id}-defaults`} className="slide-in-up py-2 pl-6 border-b border-gray-100 dark:border-gray-700">
+                  <div className={`grid gap-2 ${isBusiness ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                    <div>
+                      <label className="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Dauerauftrag vorschlagen</label>
+                      <select
+                        value={c.defaultFrequency ?? ''}
+                        onChange={e => onUpdateCategory(c.id, { defaultFrequency: (e.target.value || undefined) as Frequency | undefined })}
+                        className={`${inputCls} py-2`}
+                      >
+                        {FREQ_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                    {isBusiness && (
+                      <div>
+                        <label className="block text-[11px] text-gray-400 dark:text-gray-500 mb-1">Steuer vorschlagen</label>
+                        <select
+                          value={c.defaultTaxRate ? String(c.defaultTaxRate) : ''}
+                          onChange={e => onUpdateCategory(c.id, { defaultTaxRate: e.target.value ? Number(e.target.value) : undefined })}
+                          className={`${inputCls} py-2`}
+                        >
+                          {TAX_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">
+                    Der Wizard setzt das beim Wählen der Kategorie vor — du bestätigst oder änderst es je Buchung.
                   </p>
                 </li>
               ),

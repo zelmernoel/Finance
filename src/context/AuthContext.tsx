@@ -19,19 +19,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Initiale Session lesen (z. B. nach Page-Reload)
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
+    // supabase-js meldet SIGNED_IN bei jedem Tab-Fokus und TOKEN_REFRESHED
+    // stündlich — jedes Mal mit einem NEUEN User-Objekt. Alles, was auf
+    // `user` hängt (Storage-Adapter, Budget-Liste, Daten laden), würde dann
+    // neu starten: Ladebalken, verlorene Eingaben, doppelt gebuchte
+    // Daueraufträge. Deshalb bleibt das alte Objekt, solange die ID gleich ist.
+    const applySession = (next: Session | null) => {
+      setSession(next);
+      setUser(prev => (prev?.id === (next?.user?.id ?? null) ? prev : next?.user ?? null));
       setLoading(false);
-    });
+    };
+
+    // Initiale Session lesen (z. B. nach Page-Reload)
+    supabase.auth.getSession().then(({ data }) => applySession(data.session));
 
     // Auf Auth-Zustandsänderungen reagieren
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => applySession(session));
 
     return () => subscription.unsubscribe();
   }, []);
@@ -51,7 +54,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    const { error } = await supabase.auth.signOut();
+    // Nur dieses Gerät abmelden — 'global' (Vorgabe) würde alle Sitzungen
+    // beenden, auch die Verbindung von Claude (siehe ConsentPage).
+    const { error } = await supabase.auth.signOut({ scope: 'local' });
     if (error) throw error;
   }
 

@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
-import type { Transaction, Category, Settings, Tab } from './types';
+import type { Transaction, Category, Settings, Tab, SavingsPot, Budget } from './types';
 import type { StorageAdapter } from './lib/storage';
+import { createSavingsPotsAdapter, type SavingsPotsStorage } from './lib/savingsPotsAdapter';
 import { useAuth } from './context/AuthContext';
 import { useBudget } from './context/BudgetContext';
 import { useStorage } from './hooks/useStorage';
@@ -16,6 +17,7 @@ import {
   hasGuestData, getAllGuestData, clearAllGuestData,
 } from './lib/localStorageAdapter';
 import { createSupabaseAdapter } from './lib/supabaseAdapter';
+import { deleteReceipt } from './lib/receiptStorage';
 import { v4 as uuidv4 } from 'uuid';
 import { ACCENT } from './utils';
 import { ROUTES, pathForTab } from './routes';
@@ -34,17 +36,27 @@ export interface AppContextValue {
   storage: StorageAdapter | null;
   activeBudgetId: string | null;
   activeBudgetName: string;
+  /** 'business' schaltet im Wizard und in den Einstellungen die Steuerfelder frei. */
+  activeBudgetType: Budget['type'];
+  /**
+   * Sparttöpfe des aktiven Bereichs (nur mit Konto; im Gast-Modus leer).
+   * Liegen hier, weil Dashboard ("Verfügbar"), Töpfe-Seite und Wizard sie
+   * alle brauchen und jede Buchung sie über den DB-Trigger verändert.
+   */
+  pots: SavingsPot[];
+  potsAdapter: SavingsPotsStorage | null;
+  refreshPots: () => Promise<void>;
   /** Vom Dashboard angeklickter Monat, den die Auswertung anzeigen soll. */
   analysisMonth?: { year: number; month: number };
   goToMonth: (year: number, month: number) => void;
-  goToTab: (tab: Tab) => void;
+  goToTab: (tab: Tab, state?: Record<string, unknown>) => void;
   openTransaction: (txId: string) => void;
   createTransaction: (t: Transaction) => Promise<void>;
   updateTransaction: (id: string, patch: Partial<Omit<Transaction, 'id'>>) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
   addCategory: (name: string, type: 'income' | 'expense') => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
-  updateCategory: (id: string, patch: { monthlyBudget?: number }) => Promise<void>;
+  updateCategory: (id: string, patch: Partial<Omit<Category, 'id' | 'type'>>) => Promise<void>;
   saveSettings: (s: Partial<Omit<Settings, 'id'>>) => Promise<void>;
   importTransactions: (txs: Transaction[]) => Promise<void>;
   resetAllTransactions: () => Promise<void>;
@@ -64,10 +76,15 @@ export default function MainApp() {
 
   // ── Storage adapter scoped to active budget ───────────────────────────────
   const storage = useStorage(activeBudgetId);
+  const potsAdapter = useMemo(
+    () => (user && activeBudgetId ? createSavingsPotsAdapter(user.id, activeBudgetId) : null),
+    [user, activeBudgetId],
+  );
 
   // ── App state ─────────────────────────────────────────────────────────────
   const [transactions, setTx]         = useState<Transaction[]>([]);
   const [categories, setCats]         = useState<Category[]>([]);
+  const [pots, setPots]               = useState<SavingsPot[]>([]);
   const [settings, setSettings]       = useState<Settings>(DEFAULT_SETTINGS);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
@@ -76,27 +93,40 @@ export default function MainApp() {
   const prevUserRef                   = useRef<string | null>(null);
 
   // ── Load data whenever storage (= budget) changes ─────────────────────────
-  const loadData = useCallback(async () => {
+  // silent: im Hintergrund nachladen (Realtime-Ereignis), ohne die Seite
+  // hinter dem Ladebalken zu verstecken — das würde laufende Eingaben
+  // (Wizard, Bearbeiten-Modal) wegwerfen.
+  const loadData = useCallback(async (opts: { silent?: boolean } = {}) => {
     if (!storage) return;
-    setLoading(true);
+    if (!opts.silent) setLoading(true);
     setError(null);
     try {
-      const [txs, cats, s] = await Promise.all([
+      const [txs, cats, s, p] = await Promise.all([
         storage.getTransactions(),
         storage.getCategories(),
         storage.getSettings(),
+        potsAdapter ? potsAdapter.getPots() : Promise.resolve([] as SavingsPot[]),
       ]);
       setTx(txs);
       setCats(cats);
       setSettings(s);
+      setPots(p);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unbekannter Fehler');
     } finally {
       setLoading(false);
     }
-  }, [storage]);
+  }, [storage, potsAdapter]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // Töpfe ändern sich serverseitig mit jeder Buchung (Trigger). Nach jedem
+  // Schreibzugriff auf Transaktionen deshalb neu lesen — leise, ohne Ladebalken.
+  const refreshPots = useCallback(async () => {
+    if (!potsAdapter) { setPots([]); return; }
+    try { setPots(await potsAdapter.getPots()); }
+    catch (e) { console.error('Sparttöpfe konnten nicht geladen werden:', e); }
+  }, [potsAdapter]);
 
   // Direkt über die Navigation aufgerufen → wieder laufender Monat.
   useEffect(() => {
@@ -115,30 +145,27 @@ export default function MainApp() {
   }, [user]);
 
   // ── Recurring transactions auto-execution ─────────────────────────────────
+  // Vorher meldeten sich zwei Stellen (Callback + processedCount-Effekt) mit
+  // demselben Toast. Eine reicht.
   const handleNewRecurring = useCallback((txs: Transaction[]) => {
     setTx(prev => [...txs, ...prev].sort((a, b) => b.date.localeCompare(a.date)));
-    showToast(
-      `${txs.length} Dauerauftrag${txs.length !== 1 ? '´e' : ''} automatisch gebucht.`,
-      'info',
-    );
-  }, [showToast]);
+    showToast(`${txs.length} Dauerauftrag${txs.length !== 1 ? 'e' : ''} automatisch gebucht.`, 'info');
+    void refreshPots();
+  }, [showToast, refreshPots]);
 
-  const { processedCount } = useRecurringTransactions(storage, handleNewRecurring);
-  useEffect(() => {
-    if (processedCount > 0) {
-      showToast(`${processedCount} Dauerauftrag${processedCount !== 1 ? 'e' : ''} automatisch gebucht.`);
-    }
-  }, [processedCount, showToast]);
+  useRecurringTransactions(storage, handleNewRecurring);
 
   // ── Realtime (Supabase only) ──────────────────────────────────────────────
+  // Nur Änderungen am aktiven Bereich interessieren (z. B. eine Buchung von
+  // Claude), und sie werden leise nachgeladen.
   useEffect(() => {
     if (!user || !activeBudgetId) return;
     const channel = supabase
       .channel(`tx-${user.id}-${activeBudgetId}`)
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'transactions',
-        filter: `user_id=eq.${user.id}`,
-      }, () => loadData())
+        filter: `budget_id=eq.${activeBudgetId}`,
+      }, () => loadData({ silent: true }))
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user, activeBudgetId, loadData]);
@@ -149,9 +176,9 @@ export default function MainApp() {
     if (!storage) return;
     try {
       const created = await storage.addTransaction(t);
-      setTx(prev => [created, ...prev].sort((a, b) =>
-        new Date(b.date).getTime() - new Date(a.date).getTime()));
+      setTx(prev => [created, ...prev].sort((a, b) => b.date.localeCompare(a.date)));
       showToast('Transaktion gespeichert', 'success');
+      void refreshPots();
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Fehler beim Speichern', 'error');
     }
@@ -160,14 +187,16 @@ export default function MainApp() {
   async function handleUpdateTransaction(id: string, patch: Partial<Omit<Transaction, 'id'>>) {
     if (!storage) return;
     const updated = await storage.updateTransaction(id, patch);
-    setTx(prev => prev.map(t => t.id === id ? updated : t)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+    setTx(prev => prev.map(t => t.id === id ? updated : t).sort((a, b) => b.date.localeCompare(a.date)));
+    void refreshPots();
   }
 
   async function handleDelete(id: string) {
     if (!storage) return;
     await storage.deleteTransaction(id);
+    deleteReceipt(id); // Belege liegen im localStorage und hingen sonst verwaist herum
     setTx(prev => prev.filter(t => t.id !== id));
+    void refreshPots();
   }
 
   async function handleAddCategory(name: string, type: 'income' | 'expense') {
@@ -194,7 +223,7 @@ export default function MainApp() {
     setCats(prev => prev.filter(c => c.id !== id));
   }
 
-  async function handleUpdateCategory(id: string, patch: { monthlyBudget?: number }) {
+  async function handleUpdateCategory(id: string, patch: Partial<Omit<Category, 'id' | 'type'>>) {
     if (!storage) return;
     const updated = await storage.updateCategory(id, patch);
     setCats(prev => prev.map(c => c.id === id ? updated : c));
@@ -210,12 +239,16 @@ export default function MainApp() {
     if (!storage) return;
     const created = await storage.importTransactions(txs);
     setTx(prev => [...prev, ...created].sort((a, b) => b.date.localeCompare(a.date)));
+    void refreshPots();
   }
 
   async function handleResetAllTransactions() {
     if (!storage) return;
-    await storage.deleteAllTransactions(transactions.map(t => t.id));
+    const ids = transactions.map(t => t.id);
+    await storage.deleteAllTransactions(ids);
+    ids.forEach(deleteReceipt);
     setTx([]);
+    void refreshPots();
   }
 
   async function handleDeleteTransactionsByPeriod(from: string, to: string) {
@@ -223,7 +256,10 @@ export default function MainApp() {
     const ids = transactions.filter(t => t.date >= from && t.date <= to).map(t => t.id);
     if (!ids.length) return;
     await storage.deleteAllTransactions(ids);
-    setTx(prev => prev.filter(t => !ids.includes(t.id)));
+    ids.forEach(deleteReceipt);
+    const gone = new Set(ids);
+    setTx(prev => prev.filter(t => !gone.has(t.id)));
+    void refreshPots();
   }
 
   /** Aus dem Protokoll heraus eine einzelne Buchung öffnen. */
@@ -231,8 +267,8 @@ export default function MainApp() {
     navigate(`${ROUTES.transactions}?q=${encodeURIComponent(txId)}`);
   }
 
-  function goToTab(tab: Tab) {
-    navigate(pathForTab(tab));
+  function goToTab(tab: Tab, state?: Record<string, unknown>) {
+    navigate(pathForTab(tab), state ? { state } : undefined);
   }
 
   function goToMonth(year: number, month: number) {
@@ -241,24 +277,32 @@ export default function MainApp() {
   }
 
   // ── Migration: import guest data into Supabase ────────────────────────────
+  // Alles landet im aktiven Bereich. Gast-Daten werden erst gelöscht, wenn
+  // der Import durch ist — vorher gingen bei einem Fehler Daten verloren,
+  // und Daueraufträge wurden zwar gelesen, aber nie importiert.
   async function handleMigrateImport() {
     if (!user || !activeBudgetId) return;
     const guestData = getAllGuestData();
     const adapter = createSupabaseAdapter(user.id, activeBudgetId);
-
-    // Import transactions
-    if (guestData.transactions.length > 0) {
-      await adapter.importTransactions(guestData.transactions);
-    }
-    // Import categories (skip duplicates)
-    for (const c of guestData.categories) {
-      try { await adapter.addCategory(c); } catch { /* duplicate */ }
+    try {
+      if (guestData.transactions.length > 0) {
+        await adapter.importTransactions(guestData.transactions);
+      }
+      for (const c of guestData.categories) {
+        try { await adapter.addCategory(c); } catch { /* Duplikat */ }
+      }
+      for (const r of guestData.recurring) {
+        await adapter.addRecurring({ ...r, budgetId: activeBudgetId });
+      }
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Import fehlgeschlagen — Gast-Daten bleiben erhalten.', 'error');
+      return;
     }
 
     clearAllGuestData();
     setShowMigrate(false);
     await loadData();
-    showToast(`${guestData.transactions.length} Transaktionen importiert.`, 'success');
+    showToast(`${guestData.transactions.length} Transaktionen und ${guestData.recurring.length} Daueraufträge importiert.`, 'success');
   }
 
   function handleMigrateDiscard() {
@@ -286,7 +330,7 @@ export default function MainApp() {
         <div className="text-center max-w-sm">
           <p className="font-medium text-gray-900 dark:text-gray-100 mb-2">Fehler beim Laden</p>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{error}</p>
-          <button onClick={loadData} className="px-4 py-2 text-sm text-white rounded"
+          <button onClick={() => loadData()} className="px-4 py-2 text-sm text-white rounded"
             style={{ backgroundColor: ACCENT }}>Erneut versuchen</button>
         </div>
       </div>
@@ -302,6 +346,10 @@ export default function MainApp() {
     storage,
     activeBudgetId,
     activeBudgetName: activeBudget?.name ?? 'Budget',
+    activeBudgetType: activeBudget?.type ?? 'personal',
+    pots,
+    potsAdapter,
+    refreshPots,
     analysisMonth,
     goToMonth,
     goToTab,

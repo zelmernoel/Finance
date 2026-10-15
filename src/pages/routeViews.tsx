@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom';
 import { useAppContext } from '../MainApp';
 import Dashboard from './Dashboard';
 import Transactions from './Transactions';
@@ -19,9 +20,11 @@ export function DashboardView() {
     <Dashboard
       transactions={c.transactions}
       categories={c.categories}
+      pots={c.pots}
       startingBalance={c.settings.startingBalance}
       userName={c.settings.name}
       onNavigateToNew={() => c.goToTab('new')}
+      onNavigateToPots={() => c.goToTab('savings')}
       onNavigateToMonth={c.goToMonth}
       monthStart={c.settings.monthStart ?? 1}
     />
@@ -38,6 +41,7 @@ export function TransactionsView() {
       onUpdate={c.updateTransaction}
       onNavigateToNew={() => c.goToTab('new')}
       budgetName={c.activeBudgetName}
+      budgetType={c.activeBudgetType}
       userName={c.settings.name}
       showAiBadges={c.settings.showAiBadges !== false}
     />
@@ -46,6 +50,8 @@ export function TransactionsView() {
 
 export function NewTransactionView() {
   const c = useAppContext();
+  const location = useLocation();
+  const presetRecurring = Boolean((location.state as { recurring?: boolean } | null)?.recurring);
   return (
     <NewTransaction
       categories={c.categories}
@@ -54,6 +60,9 @@ export function NewTransactionView() {
       onSuccess={c.goToTab}
       storage={c.storage}
       budgetId={c.activeBudgetId ?? ''}
+      budgetType={c.activeBudgetType}
+      pots={c.pots}
+      presetRecurring={presetRecurring}
     />
   );
 }
@@ -78,9 +87,7 @@ export function RecurringView() {
   return (
     <RecurringPage
       storage={c.storage}
-      categories={c.categories}
-      budgetId={c.activeBudgetId}
-      onNavigateToNew={() => c.goToTab('new')}
+      onNavigateToNew={() => c.goToTab('new', { recurring: true })}
     />
   );
 }
@@ -90,7 +97,8 @@ export function BudgetsView() {
 }
 
 export function SavingsView() {
-  return <SavingsPotsPage />;
+  const c = useAppContext();
+  return <SavingsPotsPage pots={c.pots} adapter={c.potsAdapter} onChanged={c.refreshPots} />;
 }
 
 export function SettingsView() {
@@ -100,6 +108,7 @@ export function SettingsView() {
       settings={c.settings}
       categories={c.categories}
       transactions={c.transactions}
+      budgetType={c.activeBudgetType}
       onSaveSettings={c.saveSettings}
       onDeleteCategory={c.deleteCategory}
       onAddCategory={c.addCategory}
