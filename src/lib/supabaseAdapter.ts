@@ -3,6 +3,7 @@ import type {
   Transaction, Category, Settings, Budget, RecurringTransaction,
 } from '../types';
 import type { StorageAdapter, BudgetStorage } from './storage';
+import { defaultCategoriesFor } from './defaultCategories';
 
 // ── Type helpers ──────────────────────────────────────────────────────────────
 
@@ -81,20 +82,6 @@ function rowToRecurring(row: Record<string, unknown>): RecurringTransaction {
   };
 }
 
-const DEFAULT_CATEGORIES = [
-  { name: 'Lebensmittel', type: 'expense' },
-  { name: 'Transport',    type: 'expense' },
-  { name: 'Freizeit',     type: 'expense' },
-  { name: 'Kleidung',     type: 'expense' },
-  { name: 'Technik',      type: 'expense' },
-  { name: 'Bildung',      type: 'expense' },
-  { name: 'Sonstiges',    type: 'expense' },
-  { name: 'Lohn',         type: 'income'  },
-  { name: 'Nebeneinkommen', type: 'income' },
-  { name: 'Geschenk',     type: 'income'  },
-  { name: 'Sonstiges',    type: 'income'  },
-] as const;
-
 // ── initializeNewUser ─────────────────────────────────────────────────────────
 // Garantiert die korrekte Reihenfolge: Budget → Settings → Kategorien.
 // Muss einmalig nach Login / Session-Restore aufgerufen werden.
@@ -148,25 +135,18 @@ export async function initializeNewUser(userId: string): Promise<string | null> 
     );
 
   // Schritt 4: Default-Kategorien mit budget_id anlegen
-  const defaultCats = [
-    { id: `cat-exp-1-${userId}`, name: 'Lebensmittel',  type: 'expense' },
-    { id: `cat-exp-2-${userId}`, name: 'Transport',      type: 'expense' },
-    { id: `cat-exp-3-${userId}`, name: 'Freizeit',       type: 'expense' },
-    { id: `cat-exp-4-${userId}`, name: 'Kleidung',       type: 'expense' },
-    { id: `cat-exp-5-${userId}`, name: 'Technik',        type: 'expense' },
-    { id: `cat-exp-6-${userId}`, name: 'Bildung',        type: 'expense' },
-    { id: `cat-exp-7-${userId}`, name: 'Sonstiges',      type: 'expense' },
-    { id: `cat-inc-1-${userId}`, name: 'Lohn',           type: 'income'  },
-    { id: `cat-inc-2-${userId}`, name: 'Nebeneinkommen', type: 'income'  },
-    { id: `cat-inc-3-${userId}`, name: 'Geschenk',       type: 'income'  },
-    { id: `cat-inc-4-${userId}`, name: 'Sonstiges',      type: 'income'  },
-  ].map(c => ({ ...c, user_id: userId, budget_id: budgetId }));
-
-  await supabase
-    .from('categories')
-    .upsert(defaultCats, { onConflict: 'id', ignoreDuplicates: true });
+  await supabase.from('categories').insert(categoryRows(userId, budgetId, 'personal'));
 
   return budgetId;
+}
+
+/** Standardkategorien als DB-Zeilen für einen Bereich. */
+function categoryRows(userId: string, budgetId: string, type: 'personal' | 'business') {
+  return defaultCategoriesFor(type).map(c => ({
+    id: c.id, user_id: userId, budget_id: budgetId, name: c.name, type: c.type,
+    default_frequency: c.defaultFrequency ?? null,
+    default_tax_rate: c.defaultTaxRate ?? null,
+  }));
 }
 
 // ── SupabaseAdapter (scoped to budgetId) ──────────────────────────────────────
@@ -248,22 +228,16 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
         .order('type').order('name');
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
 
+      // Ein Bereich ohne Kategorien bekommt die Standardliste seiner Art.
+      // Vorher wurde nur geseedet, wenn der Nutzer in GAR KEINEM Bereich
+      // Kategorien hatte — jeder weitere Bereich (auch "Firma") blieb leer.
       if (!data || data.length === 0) {
-        const { data: existing } = await supabase
-          .from('categories')
-          .select('id')
-          .eq('user_id', userId)
-          .limit(1);
-        if (existing && existing.length > 0) return [];
-
-        const rows = DEFAULT_CATEGORIES.map((c, i) => ({
-          id: `cat-${c.type.slice(0, 3)}-${i + 1}-${userId.slice(0, 6)}`,
-          user_id: userId, budget_id: budgetId,
-          name: c.name, type: c.type,
-        }));
+        const { data: budget } = await supabase
+          .from('budgets').select('type').eq('id', budgetId).maybeSingle();
+        const type = budget?.type === 'business' ? 'business' : 'personal';
         const { data: seeded, error: err2 } = await supabase
           .from('categories')
-          .upsert(rows, { onConflict: 'id', ignoreDuplicates: true })
+          .insert(categoryRows(userId, budgetId, type))
           .select();
         if (err2) { console.error('[Supabase Error]', err2.message, err2); throw new Error(err2.message); }
         return (seeded ?? []).map(r => rowToCat(r as Record<string, unknown>));
@@ -274,7 +248,12 @@ export function createSupabaseAdapter(userId: string, budgetId: string): Storage
     async addCategory(c) {
       const { data, error } = await supabase
         .from('categories')
-        .insert({ id: c.id, user_id: userId, budget_id: budgetId, name: c.name, type: c.type })
+        .insert({
+          id: c.id, user_id: userId, budget_id: budgetId, name: c.name, type: c.type,
+          monthly_budget: c.monthlyBudget ?? null,
+          default_frequency: c.defaultFrequency ?? null,
+          default_tax_rate: c.defaultTaxRate ?? null,
+        })
         .select().single();
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
       return rowToCat(data as Record<string, unknown>);

@@ -11,7 +11,7 @@ import { formatEuro, formatDate, downloadCSV, ACCENT } from '../utils';
 import { exportTransactionsPDF } from '../lib/exportPDF';
 import { printTransactions } from '../lib/printTransactions';
 import {
-  getReceipt, saveReceipt, deleteReceipt, hasReceipt, fileToDataUrl, printReceipt,
+  getReceipt, saveReceipt, deleteReceipt, hasReceipt, fileToDataUrl, printReceipt, isPdfDataUrl,
 } from '../lib/receiptStorage';
 import type { TransactionNote } from '../types';
 import { fetchNotes, fetchNoteCounts, addNote, formatNoteTime } from '../lib/transactionNotes';
@@ -142,6 +142,7 @@ export default function Transactions({
   const exportRef                         = useRef<HTMLDivElement>(null);
   const [receiptModal, setReceiptModal]   = useState<string | null>(null); // txId
   const [receiptUrl, setReceiptUrl]       = useState<string | null>(null);
+  const [receiptError, setReceiptError]   = useState<string | null>(null);
   const [receiptProcessing, setReceiptProcessing] = useState(false);
   const receiptFileRef = useRef<HTMLInputElement>(null);
   const receiptCamRef  = useRef<HTMLInputElement>(null);
@@ -150,16 +151,23 @@ export default function Transactions({
   function openReceipt(txId: string) {
     setReceiptModal(txId);
     setReceiptUrl(getReceipt(txId));
+    setReceiptError(null);
   }
 
   async function handleReceiptFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !receiptModal) return;
     setReceiptProcessing(true);
+    setReceiptError(null);
     try {
       const dataUrl = await fileToDataUrl(file);
-      saveReceipt(receiptModal, dataUrl);
+      if (!saveReceipt(receiptModal, dataUrl)) {
+        setReceiptError('Beleg konnte nicht gespeichert werden — der lokale Speicher ist voll. Alte Belege löschen oder eine kleinere Datei wählen.');
+        return;
+      }
       setReceiptUrl(dataUrl);
+    } catch (err) {
+      setReceiptError(err instanceof Error ? err.message : 'Datei konnte nicht geladen werden.');
     } finally {
       setReceiptProcessing(false);
       e.target.value = '';
@@ -274,7 +282,8 @@ export default function Transactions({
       result = result.filter(t =>
         t.description.toLowerCase().includes(q) ||
         t.category.toLowerCase().includes(q) ||
-        String(t.amount).includes(q) ||
+        // Beträge in beiden Schreibweisen ("12,50" und "12.50"); vorher nur "12.5"
+        t.amount.toFixed(2).includes(q) || t.amount.toFixed(2).replace('.', ',').includes(q) ||
         (t.note ?? '').toLowerCase().includes(q) ||
         // Erlaubt den Sprung aus dem KI-Protokoll direkt auf eine Buchung.
         t.id.toLowerCase() === q
@@ -414,7 +423,9 @@ export default function Transactions({
 
       {/* Transaction list */}
       <Card>
-        {filtered.length === 0 ? (
+        {filtered.length === 0 && transactions.length > 0 ? (
+          <EmptyState message="Keine Buchung passt zu Suche oder Filter." />
+        ) : filtered.length === 0 ? (
           <EmptyState
             message="Noch keine Transaktionen. Erste Transaktion hinzufügen →"
             action={{ label: 'Erste Transaktion hinzufügen', onClick: onNavigateToNew }}
@@ -746,7 +757,13 @@ export default function Transactions({
 
               {/* Content */}
               <div className="p-4">
-                {receiptUrl ? (
+                {receiptUrl && isPdfDataUrl(receiptUrl) ? (
+                  <iframe
+                    src={receiptUrl}
+                    title="Beleg (PDF)"
+                    className="w-full h-[60vh] rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
+                  />
+                ) : receiptUrl ? (
                   <img
                     src={receiptUrl}
                     alt="Beleg"
@@ -765,6 +782,7 @@ export default function Transactions({
                     )}
                   </div>
                 )}
+                {receiptError && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{receiptError}</p>}
               </div>
 
               {/* Actions */}

@@ -58,10 +58,11 @@ test('rateFromAmounts rechnet den Satz zurück', () => {
   assert.equal(rateFromAmounts(90, 100), null);
 });
 
-test('isValidTaxSplit entspricht dem DB-Check (0 ≤ Steuer < Brutto)', () => {
+test('isValidTaxSplit entspricht dem DB-Check (0 ≤ Steuer ≤ Brutto)', () => {
   assert.equal(isValidTaxSplit(100, 0), true);
   assert.equal(isValidTaxSplit(100, 15.97), true);
-  assert.equal(isValidTaxSplit(100, 100), false);
+  assert.equal(isValidTaxSplit(100, 100), true);   // Steuerzahlung ans Finanzamt
+  assert.equal(isValidTaxSplit(100, 100.01), false);
   assert.equal(isValidTaxSplit(100, -1), false);
   assert.equal(isValidTaxSplit(0, 0), false);
 });

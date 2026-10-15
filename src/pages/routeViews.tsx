@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom';
 import { useAppContext } from '../MainApp';
 import Dashboard from './Dashboard';
 import Transactions from './Transactions';
@@ -49,6 +50,8 @@ export function TransactionsView() {
 
 export function NewTransactionView() {
   const c = useAppContext();
+  const location = useLocation();
+  const presetRecurring = Boolean((location.state as { recurring?: boolean } | null)?.recurring);
   return (
     <NewTransaction
       categories={c.categories}
@@ -59,6 +62,7 @@ export function NewTransactionView() {
       budgetId={c.activeBudgetId ?? ''}
       budgetType={c.activeBudgetType}
       pots={c.pots}
+      presetRecurring={presetRecurring}
     />
   );
 }
@@ -83,9 +87,7 @@ export function RecurringView() {
   return (
     <RecurringPage
       storage={c.storage}
-      categories={c.categories}
-      budgetId={c.activeBudgetId}
-      onNavigateToNew={() => c.goToTab('new')}
+      onNavigateToNew={() => c.goToTab('new', { recurring: true })}
     />
   );
 }

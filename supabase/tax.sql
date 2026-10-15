@@ -21,6 +21,9 @@
 --
 --   Einnahme mit Steuer  → +tax_amount in den Steuertopf (Umsatzsteuer)
 --   Ausgabe mit Steuer   → -tax_amount aus dem Steuertopf (Vorsteuerabzug)
+--   Steuerzahlung        → Ausgabe mit tax_amount = amount (100 % Steuer):
+--                          leert den Topf, ohne das Verfügbare doppelt zu kürzen.
+--                          Erstattung analog als Einnahme mit tax_amount = amount.
 --   Prozent-Töpfe        → verteilen den NETTO-Anteil einer Einnahme.
 --                          Die Steuer gehört dem Finanzamt, nicht der Rücklage.
 --
@@ -68,13 +71,14 @@ BEGIN
     ALTER TABLE public.pot_allocations RENAME COLUMN income_transaction_id TO transaction_id;
   END IF;
 
+  -- 0 ≤ Steuer ≤ Brutto. Gleichheit ist die Steuerzahlung/-erstattung.
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'transactions_tax_amount_check') THEN
     ALTER TABLE public.transactions ADD CONSTRAINT transactions_tax_amount_check
-      CHECK (tax_amount >= 0 AND tax_amount < amount);
+      CHECK (tax_amount >= 0 AND tax_amount <= amount);
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'recurring_transactions_tax_amount_check') THEN
     ALTER TABLE public.recurring_transactions ADD CONSTRAINT recurring_transactions_tax_amount_check
-      CHECK (tax_amount >= 0 AND tax_amount < amount);
+      CHECK (tax_amount >= 0 AND tax_amount <= amount);
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'categories_default_frequency_check') THEN
     ALTER TABLE public.categories ADD CONSTRAINT categories_default_frequency_check
@@ -130,6 +134,12 @@ CREATE OR REPLACE TRIGGER trg_sync_pot_amount
   AFTER INSERT OR UPDATE OR DELETE ON public.pot_allocations
   FOR EACH ROW EXECUTE FUNCTION public.sync_pot_current_amount();
 
+-- Einmalig alte Abweichungen (Rundungskorrektur ohne Sync) geradeziehen.
+UPDATE public.savings_pots p
+   SET current_amount = COALESCE((SELECT SUM(a.amount) FROM public.pot_allocations a WHERE a.pot_id = p.id), 0)
+ WHERE current_amount IS DISTINCT FROM
+       COALESCE((SELECT SUM(a.amount) FROM public.pot_allocations a WHERE a.pot_id = p.id), 0);
+
 -- ── 3. Steuertopf sicherstellen ──────────────────────────────
 CREATE OR REPLACE FUNCTION public.ensure_tax_pot(p_user UUID, p_budget UUID)
 RETURNS UUID
@@ -139,17 +149,30 @@ DECLARE
   v_sort INT;
 BEGIN
   SELECT id INTO v_id FROM savings_pots
-   WHERE budget_id = p_budget AND user_id = p_user AND kind = 'tax';
+   WHERE budget_id = p_budget AND kind = 'tax';
   IF v_id IS NOT NULL THEN RETURN v_id; END IF;
 
   SELECT COALESCE(MAX(sort_order), -1) + 1 INTO v_sort
     FROM savings_pots WHERE budget_id = p_budget AND user_id = p_user;
 
+  -- Zwei gleichzeitige erste Steuerbuchungen (App + Claude): der Zweite
+  -- läuft in den Unique-Index und liest dann den Topf des Ersten.
   INSERT INTO savings_pots (user_id, budget_id, name, allocation_percent, color, icon, sort_order, kind)
   VALUES (p_user, p_budget, 'Umsatzsteuer', 0, '#6B7280', '🧾', v_sort, 'tax')
+  ON CONFLICT (budget_id) WHERE kind = 'tax' DO NOTHING
   RETURNING id INTO v_id;
+
+  IF v_id IS NULL THEN
+    SELECT id INTO v_id FROM savings_pots WHERE budget_id = p_budget AND kind = 'tax';
+  END IF;
   RETURN v_id;
 END; $$;
+
+-- SECURITY-DEFINER-Funktionen in public sind per PostgREST als RPC
+-- erreichbar. Diese beiden schreiben am RLS vorbei und dürfen deshalb
+-- nur aus Triggern laufen (Muster aus mcp-schema.sql, Abschnitt 3).
+REVOKE EXECUTE ON FUNCTION public.ensure_tax_pot(uuid, uuid)
+  FROM PUBLIC, anon, authenticated, service_role;
 
 -- ── 4. Verteilung einer Buchung ──────────────────────────────
 CREATE OR REPLACE FUNCTION public.apply_pot_distribution(tx public.transactions)
@@ -207,6 +230,9 @@ BEGIN
     distributed := distributed + alloc;
   END LOOP;
 END; $$;
+
+REVOKE EXECUTE ON FUNCTION public.apply_pot_distribution(public.transactions)
+  FROM PUBLIC, anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.tx_insert_distribute()
 RETURNS TRIGGER

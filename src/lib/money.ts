@@ -56,9 +56,10 @@ export function rateFromAmounts(gross: number, net: number): number | null {
 }
 
 /**
- * Prüft die Zerlegung, wie sie auch der DB-Check verlangt:
- * Steuer ≥ 0 und echt kleiner als Brutto.
+ * Prüft die Zerlegung, wie sie auch der DB-Check verlangt: 0 ≤ Steuer ≤ Brutto.
+ * Gleichheit ist erlaubt und gemeint: eine Zahlung ans Finanzamt (oder eine
+ * Erstattung) besteht zu 100 % aus Steuer und bucht den Steuertopf leer.
  */
 export function isValidTaxSplit(gross: number, tax: number): boolean {
-  return gross > 0 && tax >= 0 && tax < gross;
+  return gross > 0 && tax >= 0 && tax <= gross;
 }

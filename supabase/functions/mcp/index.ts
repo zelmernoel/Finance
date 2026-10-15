@@ -289,7 +289,7 @@ async function requireBudget(sb: SupabaseClient, budgetId: string) {
 async function fetchCategories(sb: SupabaseClient, budgetId: string) {
   const { data, error } = await sb
     .from('categories')
-    .select('id, name, type, monthly_budget, budget_id')
+    .select('id, name, type, monthly_budget, default_frequency, default_tax_rate, budget_id')
     .eq('budget_id', budgetId)
     .order('type')
     .order('name');
@@ -308,6 +308,7 @@ async function fetchAllTransactions(sb: SupabaseClient, budgetId: string) {
       .eq('budget_id', budgetId)
       .order('date', { ascending: false })
       .order('created_at', { ascending: false })
+      .order('id') // eindeutige Reihenfolge, sonst kann OFFSET-Paging Zeilen überspringen
       .range(offset, offset + page - 1);
     if (error) throw new ToolError(`Transaktionen konnten nicht gelesen werden: ${error.message}`);
     const rows = data ?? [];
@@ -320,7 +321,7 @@ async function fetchAllTransactions(sb: SupabaseClient, budgetId: string) {
 async function fetchSettings(sb: SupabaseClient, budgetId: string) {
   const { data, error } = await sb
     .from('settings')
-    .select('id, budget_id, starting_balance, name, month_start, show_ai_badges')
+    .select('id, budget_id, starting_balance, name, month_start, show_ai_badges, mcp_allow_pot_creation')
     .eq('budget_id', budgetId)
     .maybeSingle();
   if (error) throw new ToolError(`Einstellungen konnten nicht gelesen werden: ${error.message}`);
@@ -434,7 +435,9 @@ const TOOLS = [
   {
     name: 'list-categories',
     description:
-      'Listet die Kategorien eines Bereichs, getrennt nach Einnahme und Ausgabe. ' +
+      'Listet die Kategorien eines Bereichs, getrennt nach Einnahme und Ausgabe, mit Vorbelegungen ' +
+      '(steuersatz_vorbelegung: enthaltener Steuersatz, den die App bei dieser Kategorie vorschlägt — ' +
+      'bei create-transaction dann als tax_rate übergeben, sofern die Rechnung nichts anderes sagt). ' +
       'Die Kategorienamen aus diesem Tool sind die einzigen zulässigen Werte für den Parameter "category" ' +
       'von create-transaction. Pflichtparameter: budget_id.',
     inputSchema: {
@@ -457,8 +460,8 @@ const TOOLS = [
         to: { type: 'string', description: 'Spätestes Datum, einschliesslich, Format YYYY-MM-DD.' },
         type: { type: 'string', enum: ['income', 'expense'], description: 'Nur Einnahmen bzw. nur Ausgaben.' },
         category: { type: 'string', description: 'Exakter Kategoriename.' },
-        min_amount: { type: 'number', description: 'Mindestbetrag in Euro, einschliesslich.' },
-        max_amount: { type: 'number', description: 'Höchstbetrag in Euro, einschliesslich.' },
+        min_amount: { type: 'number', description: 'Mindestbetrag (brutto) in Euro, einschliesslich.' },
+        max_amount: { type: 'number', description: 'Höchstbetrag (brutto) in Euro, einschliesslich.' },
         search: { type: 'string', description: 'Freitextsuche in Beschreibung, Kategorie und Notiz.' },
         limit: { type: 'number', description: 'Anzahl Treffer. Vorgabe 100, Maximum 500.' },
         offset: { type: 'number', description: 'Anzahl zu überspringender Treffer für Blättern. Vorgabe 0.' },
@@ -624,8 +627,9 @@ const TOOLS = [
   {
     name: 'create-savings-pot',
     description:
-      'Legt einen neuen Spartopf an. ACHTUNG, Tragweite: ein Topf mit Verteilungsanteil verändert, was mit ' +
-      'KÜNFTIGEN Einnahmen geschieht — jede neue Einnahme wird automatisch anteilig verteilt. Deshalb muss ' +
+      'Legt einen neuen manuellen Spartopf an. ACHTUNG, Tragweite: ein Topf mit Verteilungsanteil verändert, ' +
+      'was mit KÜNFTIGEN Einnahmen geschieht — der Netto-Anteil jeder neuen Einnahme wird automatisch ' +
+      'anteilig verteilt (die enthaltene Steuer geht in den Steuertopf). Deshalb muss ' +
       'der Nutzer das in den Einstellungen erlaubt haben (Schalter "Sparttöpfe anlegen"); ist er aus, ' +
       'schlägt der Aufruf fehl. Bestehende Töpfe können weder geändert noch gelöscht werden. ' +
       'Pflichtparameter: budget_id, name, allocation_percent.',
@@ -637,7 +641,7 @@ const TOOLS = [
         allocation_percent: {
           type: 'number',
           description:
-            'Anteil künftiger Einnahmen in Prozent (0–100). Die Summe über alle Töpfe eines Bereichs darf ' +
+            'Anteil vom Netto künftiger Einnahmen in Prozent (0–100). Die Summe über alle manuellen Töpfe eines Bereichs darf ' +
             '100 nicht überschreiten; bei Überschreitung nennt die Fehlermeldung den noch freien Anteil.',
         },
         target_amount: { type: 'number', description: 'Optionales Sparziel in Euro.' },
@@ -651,8 +655,9 @@ const TOOLS = [
   {
     name: 'create-transaction',
     description:
-      'Legt eine neue Transaktion an. Dies ist der einzige schreibende Zugriff dieses Servers; Ändern und ' +
-      'Löschen sind nicht möglich. Alle Pflichtparameter müssen gesetzt sein, es gibt keine Vorbelegung — ' +
+      'Legt eine neue Transaktion an (neben add-note und create-savings-pot einer von drei schreibenden ' +
+      'Zugriffen; Ändern und Löschen sind nicht möglich). Alle Pflichtparameter müssen gesetzt sein, es gibt ' +
+      'keine Vorbelegung — ' +
       'insbesondere wird kein Bereich geraten. Der Kategoriename muss exakt einer vorhandenen Kategorie des ' +
       'Bereichs mit passendem Typ entsprechen (siehe list-categories); neue Kategorien werden nicht angelegt. ' +
       'Der Betrag ist immer positiv und BRUTTO, die Richtung ergibt sich aus "type". ' +
@@ -679,14 +684,14 @@ const TOOLS = [
         tax_amount: {
           type: 'number',
           description:
-            'Optional. Im Bruttobetrag enthaltene Steuer in Euro (0 ≤ tax_amount < amount). ' +
-            'Vorrang vor tax_rate.',
+            'Optional. Im Bruttobetrag enthaltene Steuer in Euro (0 ≤ tax_amount ≤ amount; Gleichheit = ' +
+            'reine Steuerzahlung ans Finanzamt bzw. Erstattung). Nicht zusammen mit tax_rate.',
         },
         tax_rate: {
           type: 'number',
           description:
             'Optional. Enthaltener Steuersatz in Prozent (0–100), z. B. 19 oder 7. Der Server rechnet ' +
-            'die Steuer als amount − amount / (1 + tax_rate/100), auf Cent gerundet.',
+            'Netto = amount / (1 + tax_rate/100), auf Cent gerundet, und Steuer = amount − Netto.',
         },
         category: {
           type: 'string',
@@ -815,6 +820,11 @@ const HANDLERS: Record<string, Handler> = {
           name: String(c.name),
           monatsbudget:
             c.monthly_budget != null ? money(toNum(c.monthly_budget)) : null,
+          // Vorbelegungen aus der App: welchen Steuersatz und welche Wiederholung
+          // der Wizard bei dieser Kategorie vorschlägt. Für create-transaction
+          // heisst das: bei steuersatz_vorbelegung 19 ist tax_rate 19 der Normalfall.
+          steuersatz_vorbelegung: c.default_tax_rate != null ? toNum(c.default_tax_rate) : null,
+          dauerauftrag_vorbelegung: c.default_frequency != null ? String(c.default_frequency) : null,
         }));
 
     const einnahmen = map('income');
@@ -884,6 +894,7 @@ const HANDLERS: Record<string, Handler> = {
     const { data, error, count } = await q
       .order('date', { ascending: false })
       .order('created_at', { ascending: false })
+      .order('id')
       .range(offset, offset + limit - 1);
 
     if (error) throw new ToolError(`Transaktionen konnten nicht gelesen werden: ${error.message}`);
@@ -1460,9 +1471,10 @@ const HANDLERS: Record<string, Handler> = {
     const budget = await requireBudget(sb, budgetId);
     const name = requireString(args, 'name');
 
-    // Schritt 1: Hat der Nutzer das überhaupt erlaubt?
+    // Schritt 1: Hat der Nutzer das überhaupt erlaubt? Ohne Settings-Zeile
+    // greift die RLS-Policy ohnehin (EXISTS auf settings), also gleich klar sagen.
     const settings = await fetchSettings(sb, budgetId);
-    if (settings && settings.mcp_allow_pot_creation === false) {
+    if (settings?.mcp_allow_pot_creation !== true) {
       throw new ToolError(
         `Das Anlegen von Sparttöpfen ist für den Bereich "${budget.name}" abgeschaltet. ` +
         'Der Schalter steht in der App unter Einstellungen → KI-Zugriff → "Sparttöpfe anlegen". ' +
@@ -1488,6 +1500,7 @@ const HANDLERS: Record<string, Handler> = {
     if (potError) throw new ToolError(`Sparttöpfe konnten nicht gelesen werden: ${potError.message}`);
 
     const bestehende = (potRows ?? []) as Record<string, unknown>[];
+    // Der Steuertopf (0 %) zählt nicht zur 100-%-Grenze.
     const belegt = bestehende.reduce((sum, p) => sum + toNum(p.allocation_percent), 0);
     const frei = Math.round((100 - belegt) * 100) / 100;
 
@@ -1572,8 +1585,9 @@ const HANDLERS: Record<string, Handler> = {
         verplant_prozent_gesamt: Math.round((belegt + percent) * 100) / 100,
         frei_prozent: freiDanach,
         hinweis:
-          'Ab jetzt wird jede neue Einnahme in diesem Bereich automatisch anteilig auf die Sparttöpfe ' +
-          'verteilt. Bestehende Buchungen bleiben unberührt.',
+          'Ab jetzt wird der NETTO-Anteil jeder neuen Einnahme in diesem Bereich automatisch anteilig ' +
+          'auf die manuellen Sparttöpfe verteilt; enthaltene Steuer geht in den Steuertopf. ' +
+          'Bestehende Buchungen bleiben unberührt.',
       },
       summary: `Spartopf angelegt: ${String(row.name)} (${toNum(row.allocation_percent)} %)`,
       headline: bestaetigung,
@@ -1625,8 +1639,9 @@ const HANDLERS: Record<string, Handler> = {
       );
     }
 
-    // Steuer: Betrag von der Rechnung hat Vorrang, sonst aus dem Satz rechnen.
-    // Gleiche Rechnung wie src/lib/money.ts (taxFromGross).
+    // Steuer: entweder Betrag von der Rechnung oder aus dem Satz gerechnet.
+    // Gleiche Rechnung wie src/lib/money.ts (netFromGross/taxFromGross):
+    // Netto = round(Brutto / (1 + Satz)), Steuer = Brutto − Netto.
     let taxAmount = 0;
     const rawTax = optionalNumber(args, 'tax_amount');
     const rawRate = optionalNumber(args, 'tax_rate');
@@ -1642,10 +1657,12 @@ const HANDLERS: Record<string, Handler> = {
       if (rawRate < 0 || rawRate > 100) {
         throw new ToolError(`"tax_rate" muss zwischen 0 und 100 liegen (erhalten: ${rawRate}).`);
       }
-      const net = Math.round((amount / (1 + rawRate / 100)) * 100) / 100;
-      taxAmount = Math.round((amount - net) * 100) / 100;
+      // Mit EPSILON wie round2() in src/lib/money.ts, damit App und Server
+      // bei Grenzfällen (x,xx5) denselben Cent liefern.
+      const net = Math.round((amount / (1 + rawRate / 100) + Number.EPSILON) * 100) / 100;
+      taxAmount = Math.round((amount - net + Number.EPSILON) * 100) / 100;
     }
-    if (taxAmount < 0 || taxAmount >= amount) {
+    if (taxAmount < 0 || taxAmount > amount) {
       throw new ToolError(
         `Die enthaltene Steuer muss zwischen 0 und dem Bruttobetrag liegen (Steuer ${taxAmount}, Brutto ${amount}).`,
       );
@@ -1719,9 +1736,10 @@ const HANDLERS: Record<string, Handler> = {
 
     // ── Schritt 3b: indirekte Effekte sichtbar machen ──
     // Ein INSERT auf transactions löst über SECURITY-DEFINER-Trigger
-    // (savings-pots.sql) eine Verteilung auf die Sparttöpfe aus — an RLS
-    // vorbei und ohne Zutun dieses Servers. Ohne diesen Nachtrag wäre die
-    // Bestätigung unvollständig: es hätte sich mehr geändert als gemeldet.
+    // (supabase/tax.sql) eine Verteilung auf die Sparttöpfe aus — Steuer in
+    // den Steuertopf (auch bei Ausgaben, dann negativ), Netto-Anteile in
+    // manuelle Töpfe — an RLS vorbei und ohne Zutun dieses Servers. Ohne
+    // diesen Nachtrag wäre die Bestätigung unvollständig.
     let verteilung: {
       stattgefunden: boolean;
       summe: { betrag: number; formatiert: string } | null;
@@ -1815,6 +1833,8 @@ const HANDLERS: Record<string, Handler> = {
           id: gelesen.id,
           budget_id: row.budget_id != null ? String(row.budget_id) : null,
           bereich_name: String(budget.name),
+          steuer: gelesen.steuer,
+          netto: gelesen.netto,
           datum: gelesen.datum,
           datum_formatiert: gelesen.datum_formatiert,
           type: gelesen.type,
@@ -1931,9 +1951,10 @@ async function handleRpc(ctx: AuthContext, msg: Record<string, unknown>): Promis
         serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
         instructions:
           'Zugriff auf den Finance. Alle Auswertungs-Tools benötigen eine budget_id — diese zuerst ' +
-          'mit list-budgets ermitteln. Schreiben ist ausschliesslich über create-transaction möglich; ' +
-          'Ändern und Löschen sind serverseitig gesperrt. Kategorienamen müssen exakt einer vorhandenen ' +
-          'Kategorie entsprechen (list-categories).',
+          'mit list-budgets ermitteln. Geschrieben wird nur über create-transaction, add-note und ' +
+          'create-savings-pot; Ändern und Löschen sind serverseitig gesperrt. Kategorienamen müssen exakt ' +
+          'einer vorhandenen Kategorie entsprechen (list-categories). Beträge sind brutto; im Firmenbereich ' +
+          'enthaltene Steuer über tax_amount oder tax_rate angeben, sonst landet nichts im Steuertopf.',
       });
     }
 

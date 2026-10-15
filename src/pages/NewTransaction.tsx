@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import type { Budget, Category, Frequency, SavingsPot, Transaction } from '../types';
+import { FREQUENCY_LABELS, type Budget, type Category, type Frequency, type SavingsPot, type Transaction } from '../types';
 import type { StorageAdapter } from '../lib/storage';
 import Card from '../components/Card';
 import { ACCENT, formatDate, formatEuro, todayISO } from '../utils';
-import { calcNextDue } from '../hooks/useRecurringTransactions';
+import { anchorDayOf, calcNextDue } from '../hooks/useRecurringTransactions';
 import { saveReceipt, fileToDataUrl } from '../lib/receiptStorage';
 import {
   TAX_RATES, amountToInput, isValidTaxSplit, netFromGross, parseAmount, round2,
 } from '../lib/money';
+import { loadCategoryOrder, sortByCategoryOrder } from '../hooks/useCategoryColors';
 
 // ── Buchungs-Wizard ───────────────────────────────────────────────────────────
 //
@@ -33,15 +34,21 @@ interface Props {
   budgetId: string;
   budgetType: Budget['type'];
   pots: SavingsPot[];
+  /** Von der Daueraufträge-Seite aus: Wiederholung gleich vorbelegen. */
+  presetRecurring?: boolean;
 }
 
 type TxType = 'income' | 'expense';
-type TaxMode = 'none' | 'rate' | 'custom';
+/**
+ * none   keine Steuer enthalten
+ * rate   Netto aus Brutto und Satz gerechnet
+ * custom Netto von der Rechnung abgetippt
+ * full   die Buchung IST Steuer: Zahlung ans Finanzamt bzw. Erstattung
+ */
+type TaxMode = 'none' | 'rate' | 'custom' | 'full';
 
 const STEPS = ['Was?', 'Wie viel?', 'Details', 'Prüfen'] as const;
-const FREQ_LABELS: Record<Frequency, string> = {
-  daily: 'Täglich', weekly: 'Wöchentlich', monthly: 'Monatlich', yearly: 'Jährlich',
-};
+const FREQ_LABELS = FREQUENCY_LABELS;
 
 const inputCls = 'w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-3 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-[var(--accent)] min-h-[44px]';
 const labelCls = 'block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2';
@@ -54,7 +61,7 @@ const chipCls  = (active: boolean) =>
 const chipStyle = (active: boolean) => (active ? { backgroundColor: ACCENT } : undefined);
 
 export default function NewTransaction({
-  categories, onSubmit, onAddCategory, onSuccess, storage, budgetId, budgetType, pots,
+  categories, onSubmit, onAddCategory, onSuccess, storage, budgetId, budgetType, pots, presetRecurring = false,
 }: Props) {
   const today = todayISO();
   const isBusiness = budgetType === 'business';
@@ -74,7 +81,7 @@ export default function NewTransaction({
   const [date, setDate]               = useState(today);
   const [description, setDesc]        = useState('');
   const [notes, setNotes]             = useState<string[]>(['']);
-  const [isRecurring, setIsRecurring] = useState(false);
+  const [isRecurring, setIsRecurring] = useState(presetRecurring);
   const [frequency, setFrequency]     = useState<Frequency>('monthly');
   const [endDate, setEndDate]         = useState('');
   const [receiptDataUrl, setReceiptDataUrl]   = useState<string | null>(null);
@@ -87,6 +94,7 @@ export default function NewTransaction({
   const [stepError, setStepError]   = useState<string | null>(null);
   const [loading, setLoading]       = useState(false);
   const [success, setSuccess]       = useState(false);
+  const [afterSaveNote, setAfterSaveNote] = useState<string | null>(null);
 
   const grossRef = useRef<HTMLInputElement>(null);
   const descRef  = useRef<HTMLInputElement>(null);
@@ -98,17 +106,21 @@ export default function NewTransaction({
   const grossNum  = parseAmount(gross) ?? 0;
   const netInput  = taxMode === 'rate'
     ? (grossNum > 0 ? amountToInput(netFromGross(grossNum, taxRate)) : '')
-    : net;
-  const netNum    = taxMode === 'none' ? grossNum : (parseAmount(netInput) ?? 0);
+    : taxMode === 'full' ? '0' : net;
+  const netNum    = taxMode === 'none' ? grossNum : taxMode === 'full' ? 0 : (parseAmount(netInput) ?? 0);
   const taxNum    = taxMode === 'none' ? 0 : round2(grossNum - netNum);
   const taxPot    = pots.find(p => p.kind === 'tax');
 
-  const catOptions = useMemo(() => categories.filter(c => c.type === type), [categories, type]);
+  // In der Reihenfolge, die in den Einstellungen festgelegt wurde (gerätelokal).
+  const catOptions = useMemo(
+    () => sortByCategoryOrder(categories.filter(c => c.type === type), loadCategoryOrder(budgetId)),
+    [categories, type, budgetId],
+  );
 
   // ── Vorbelegungen aus der Kategorie ──────────────────────────────────────
   function applyCategoryDefaults(cat: Category | undefined) {
     if (cat?.defaultFrequency) { setIsRecurring(true); setFrequency(cat.defaultFrequency); }
-    else setIsRecurring(false);
+    else setIsRecurring(presetRecurring);
 
     if (isBusiness && cat?.defaultTaxRate != null && cat.defaultTaxRate > 0) {
       setTaxMode('rate'); setTaxRate(cat.defaultTaxRate);
@@ -162,7 +174,7 @@ export default function NewTransaction({
     if (s === 1) {
       if (grossNum <= 0) return 'Bitte einen Betrag größer als 0 eingeben.';
       if (taxMode !== 'none' && !isValidTaxSplit(grossNum, taxNum)) {
-        return 'Das Netto muss größer als 0 und kleiner als das Brutto sein.';
+        return 'Das Netto muss zwischen 0 und dem Brutto liegen.';
       }
     }
     if (s === 2) {
@@ -210,7 +222,11 @@ export default function NewTransaction({
         category, description: description.trim(), note: noteValue,
       };
       await onSubmit(tx);
-      if (receiptDataUrl) saveReceipt(tx.id, receiptDataUrl);
+      let note: string | null = null;
+      if (receiptDataUrl && !saveReceipt(tx.id, receiptDataUrl)) {
+        note = 'Buchung gespeichert, aber der Beleg passte nicht mehr in den lokalen Speicher.';
+        setAfterSaveNote(note);
+      }
 
       if (isRecurring && storage) {
         await storage.addRecurring({
@@ -218,14 +234,14 @@ export default function NewTransaction({
           category, description: tx.description, note: noteValue,
           frequency, startDate: date,
           endDate: endDate || undefined,
-          nextDue: calcNextDue(date, frequency),
+          nextDue: calcNextDue(date, frequency, anchorDayOf(date)),
           isActive: true,
         });
       }
 
       const wasRecurring = isRecurring;
       setSuccess(true);
-      setTimeout(() => onSuccess(wasRecurring ? 'recurring' : 'dashboard'), 700);
+      setTimeout(() => onSuccess(wasRecurring ? 'recurring' : 'dashboard'), note ? 2500 : 700);
     } catch (e) {
       setStepError(e instanceof Error ? e.message : 'Fehler beim Speichern');
     } finally {
@@ -267,6 +283,7 @@ export default function NewTransaction({
           <div className="py-10 text-center">
             <div className="w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center text-white text-xl" style={{ backgroundColor: ACCENT }}>✓</div>
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Buchung gespeichert</p>
+            {afterSaveNote && <p className="text-xs text-red-600 dark:text-red-400 mt-2">{afterSaveNote}</p>}
           </div>
         ) : (
           <>
@@ -373,28 +390,36 @@ export default function NewTransaction({
                             className={chipCls(taxMode === 'custom')} style={chipStyle(taxMode === 'custom')}>
                             Netto von der Rechnung
                           </button>
+                          <button type="button" onClick={() => setTaxMode('full')}
+                            className={chipCls(taxMode === 'full')} style={chipStyle(taxMode === 'full')}>
+                            {type === 'income' ? 'Erstattung vom Finanzamt' : 'Zahlung ans Finanzamt'}
+                          </button>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
                           <div>
                             <label className={labelCls}>Netto (€)</label>
-                            <input type="text" inputMode="decimal" value={netInput}
+                            <input type="text" inputMode="decimal" value={netInput} disabled={taxMode === 'full'}
                               onChange={e => { setTaxMode('custom'); setNet(e.target.value); }}
-                              placeholder="0,00" className={`${inputCls} tabular-nums`} />
+                              placeholder="0,00" className={`${inputCls} tabular-nums disabled:opacity-60`} />
                           </div>
                           <div>
                             <label className={labelCls}>Steuer (€)</label>
                             <div className={`${inputCls} tabular-nums bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 flex items-center`}>
-                              {grossNum > 0 && netNum > 0 ? formatEuro(taxNum) : '—'}
+                              {grossNum > 0 && isValidTaxSplit(grossNum, taxNum) ? formatEuro(taxNum) : '—'}
                             </div>
                           </div>
                         </div>
 
                         {grossNum > 0 && isValidTaxSplit(grossNum, taxNum) && (
                           <p className="text-xs text-gray-500 dark:text-gray-400">
-                            {type === 'income'
-                              ? `${formatEuro(taxNum)} wandern in den Topf „${taxPot?.name ?? 'Umsatzsteuer'}“ und zählen nicht als verfügbar.`
-                              : `${formatEuro(taxNum)} Vorsteuer werden vom Topf „${taxPot?.name ?? 'Umsatzsteuer'}“ abgezogen (Vorsteuerabzug).`}
+                            {taxMode === 'full'
+                              ? (type === 'income'
+                                ? `Erstattung: ${formatEuro(taxNum)} gehen in den Topf „${taxPot?.name ?? 'Umsatzsteuer'}“ (gleicht einen negativen Stand aus).`
+                                : `Steuerzahlung: der Topf „${taxPot?.name ?? 'Umsatzsteuer'}“ wird um ${formatEuro(taxNum)} geleert, das Verfügbare bleibt gleich.`)
+                              : type === 'income'
+                                ? `${formatEuro(taxNum)} wandern in den Topf „${taxPot?.name ?? 'Umsatzsteuer'}“ und zählen nicht als verfügbar.`
+                                : `${formatEuro(taxNum)} Vorsteuer werden vom Topf „${taxPot?.name ?? 'Umsatzsteuer'}“ abgezogen (Vorsteuerabzug).`}
                           </p>
                         )}
                       </>
@@ -437,7 +462,7 @@ export default function NewTransaction({
                         <input type="date" value={endDate} min={date} onChange={e => setEndDate(e.target.value)} className={inputCls} />
                       </div>
                       <p className="text-xs text-gray-400 dark:text-gray-500">
-                        Nächste Buchung am {formatDate(calcNextDue(date, frequency))}, immer mit denselben Beträgen.
+                        Diese Buchung wird heute angelegt; die nächste folgt am {formatDate(calcNextDue(date, frequency, anchorDayOf(date)))}, immer mit denselben Beträgen.
                       </p>
                     </div>
                   )}
@@ -482,7 +507,7 @@ export default function NewTransaction({
                     <>
                       <SummaryRow label="Netto" value={formatEuro(netNum)} />
                       <SummaryRow
-                        label={type === 'income' ? 'Umsatzsteuer' : 'Vorsteuer'}
+                        label={taxMode === 'full' ? (type === 'income' ? 'Erstattung' : 'Steuerzahlung') : type === 'income' ? 'Umsatzsteuer' : 'Vorsteuer'}
                         value={`${type === 'income' ? '+' : '−'} ${formatEuro(taxNum)} → Topf „${taxPot?.name ?? 'Umsatzsteuer'}“`} />
                     </>
                   )}

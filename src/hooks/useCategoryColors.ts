@@ -20,6 +20,27 @@ export function saveCategoryColors(budgetId: string | null, map: Record<string, 
   catch { /* ignore */ }
 }
 
+// ── Reihenfolge ───────────────────────────────────────────────────────────────
+
+export function categoryOrderKey(budgetId: string | null): string {
+  return `catOrder:${budgetId ?? 'guest'}`;
+}
+
+export function loadCategoryOrder(budgetId: string | null): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem(categoryOrderKey(budgetId)) ?? '{}'); }
+  catch { return {}; }
+}
+
+export function saveCategoryOrder(budgetId: string | null, map: Record<string, number>): void {
+  try { localStorage.setItem(categoryOrderKey(budgetId), JSON.stringify(map)); }
+  catch { /* ignore */ }
+}
+
+/** Sortiert nach gespeicherter Reihenfolge; Kategorien ohne Eintrag kommen hinten, stabil. */
+export function sortByCategoryOrder<T extends { id: string }>(cats: T[], order: Record<string, number>): T[] {
+  return [...cats].sort((a, b) => (order[a.id] ?? Number.MAX_SAFE_INTEGER) - (order[b.id] ?? Number.MAX_SAFE_INTEGER));
+}
+
 /**
  * Liefert eine Funktion, die zu einem Kategorienamen die Farbe auflöst:
  * eigene Farbe, falls gesetzt — sonst ein Ton aus `series` anhand des Index.

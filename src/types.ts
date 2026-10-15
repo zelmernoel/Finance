@@ -96,6 +96,11 @@ export interface PotAllocation {
 
 export type Frequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
 
+/** Eine Quelle für die Anzeigenamen — stand vorher dreimal im Code. */
+export const FREQUENCY_LABELS: Record<Frequency, string> = {
+  daily: 'Täglich', weekly: 'Wöchentlich', monthly: 'Monatlich', yearly: 'Jährlich',
+};
+
 export interface RecurringTransaction {
   id: string;
   budgetId: string;

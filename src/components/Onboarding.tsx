@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { parseAmount } from '../lib/money';
 import { useNavigate } from 'react-router-dom';
 import type { Settings } from '../types';
 import { useBudget } from '../context/BudgetContext';
@@ -60,12 +61,13 @@ export default function Onboarding({ settings, onSaveSettings }: Props) {
     try {
       const patch: Partial<Omit<Settings, 'id'>> = { onboardingCompleted: true };
       if (withProfile) {
-        const parsed = parseFloat(balance.replace(',', '.'));
         patch.name = name.trim();
-        patch.startingBalance = isNaN(parsed) ? 0 : parsed;
+        patch.startingBalance = (balance.trim() ? parseAmount(balance) : 0) ?? 0;
       }
-      if (withProfile && mainBudget) setDefaultBudgetId(mainBudget);
+      // Erst speichern, dann den Hauptbereich wechseln: onSaveSettings schreibt
+      // in den AKTIVEN Bereich — nach dem Wechsel wäre das der falsche.
       await onSaveSettings(patch);
+      if (withProfile && mainBudget) setDefaultBudgetId(mainBudget);
     } catch {
       // Der lokale Merker steht bereits — der Erstkontakt kommt nicht wieder.
       // Name und Startsaldo lassen sich in den Einstellungen nachtragen.
@@ -75,7 +77,7 @@ export default function Onboarding({ settings, onSaveSettings }: Props) {
     }
   }
 
-  const parsedBalance = parseFloat(balance.replace(',', '.'));
+  const parsedBalance = parseAmount(balance) ?? NaN;
 
   return (
     <>

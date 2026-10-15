@@ -10,13 +10,22 @@ import { addDays, addMonths, addYears, todayISO } from '../utils';
 // beides ist hier zwingend: eine Fälligkeit, die stehenbleibt, lässt die App
 // bei jedem Start erneut buchen. Siehe src/utils.dates.test.ts.
 
-export function calcNextDue(current: string, frequency: Frequency): string {
+/**
+ * anchorDay = Monatstag des Startdatums. Hält einen Auftrag vom 31. auf dem
+ * Monatsletzten statt ihn nach dem Februar dauerhaft auf den 28. zu setzen.
+ */
+export function calcNextDue(current: string, frequency: Frequency, anchorDay?: number): string {
   switch (frequency) {
     case 'daily':   return addDays(current, 1);
     case 'weekly':  return addDays(current, 7);
-    case 'monthly': return addMonths(current, 1);
-    case 'yearly':  return addYears(current, 1);
+    case 'monthly': return addMonths(current, 1, anchorDay);
+    case 'yearly':  return addYears(current, 1, anchorDay);
   }
+}
+
+/** Monatstag aus "YYYY-MM-DD" — der Anker für calcNextDue. */
+export function anchorDayOf(iso: string): number {
+  return Number(iso.slice(8, 10)) || 1;
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
@@ -48,10 +57,15 @@ export function useRecurringTransactions(
   const [processedCount, setProcessedCount] = useState(0);
   const [processing, setProcessing] = useState(false);
   const ranRef = useRef(false);
+  // Läuft gerade ein Durchlauf, startet kein zweiter — sonst buchen zwei
+  // Läufe (z. B. nach einem Budget-Wechsel mitten im Nachholen) dieselben
+  // Termine doppelt.
+  const inFlightRef = useRef(false);
 
   const process = useCallback(async () => {
-    if (!storage || ranRef.current) return;
+    if (!storage || ranRef.current || inFlightRef.current) return;
     ranRef.current = true;
+    inFlightRef.current = true;
     setProcessing(true);
 
     try {
@@ -67,8 +81,11 @@ export function useRecurringTransactions(
         let lastBooked = r.lastExecuted;
         let active = true;
         let runs = 0;
+        const anchorDay = anchorDayOf(r.startDate);
 
         while (active && nextDue <= today && runs < MAX_CATCH_UP) {
+          // Enddatum VOR dem Buchen prüfen — ein abgelaufener Auftrag bucht nichts mehr.
+          if (r.endDate && nextDue > r.endDate) { active = false; break; }
           lastBooked = nextDue;
           const saved = await storage.addTransaction({
             id: crypto.randomUUID(),
@@ -83,7 +100,7 @@ export function useRecurringTransactions(
           created.push(saved);
           runs++;
 
-          nextDue = calcNextDue(nextDue, r.frequency);
+          nextDue = calcNextDue(nextDue, r.frequency, anchorDay);
           if (r.endDate && nextDue > r.endDate) active = false;
         }
 
@@ -101,6 +118,7 @@ export function useRecurringTransactions(
     } catch (e) {
       console.error('Fehler beim Verarbeiten von Daueraufträgen:', e);
     } finally {
+      inFlightRef.current = false;
       setProcessing(false);
     }
   }, [storage, onNewTransactions]);

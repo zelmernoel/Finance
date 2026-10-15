@@ -9,7 +9,7 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import EmptyState from '../components/EmptyState';
 import {
   formatEuro, getCurrentMonth, filterByMonth, getLast12Months,
-  getCustomMonthRange,
+  getCustomMonthRange, addMonths,
   groupByCategory, computeBalance, CHART_INCOME, CHART_EXPENSE, ACCENT,
   formatAxisEuro
 } from '../utils';
@@ -104,11 +104,13 @@ export default function Dashboard({
 
   const lineData = useMemo(() => {
     const sorted = [...transactions].sort((a, b) => a.date.localeCompare(b.date));
-    let running = startingBalance;
-    return sorted.map((t) => {
-      running += t.type === 'income' ? t.amount : -t.amount;
-      return { date: t.date, Kontostand: running };
-    });
+    const points: { date: string; Kontostand: number }[] = [];
+    sorted.reduce((running, t) => {
+      const next = running + (t.type === 'income' ? t.amount : -t.amount);
+      points.push({ date: t.date, Kontostand: next });
+      return next;
+    }, startingBalance);
+    return points;
   }, [transactions, startingBalance]);
 
   const donutData = useMemo(() => {
@@ -116,11 +118,10 @@ export default function Dashboard({
     if (donutRange === 'current') {
       filtered = currentMonthTx.filter(t => t.type === 'expense');
     } else if (donutRange === 'last3') {
-      const cutoff = new Date(year, month - 4, 1);
-      filtered = transactions.filter(t => {
-        const d = new Date(t.date);
-        return t.type === 'expense' && d >= cutoff;
-      });
+      // Ab dem 1. des Monats vor drei Monaten (wie bisher), als reiner
+      // String-Vergleich — kein Date-Objekt, keine Zeitzonenfalle.
+      const from = addMonths(`${year}-${String(month).padStart(2, '0')}-01`, -3);
+      filtered = transactions.filter(t => t.type === 'expense' && t.date >= from);
     } else {
       filtered = transactions.filter(t => t.type === 'expense');
     }

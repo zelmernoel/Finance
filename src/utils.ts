@@ -1,4 +1,5 @@
 import type { Transaction } from './types';
+import { isValidTaxSplit, parseAmount, round2 } from './lib/money';
 
 export function formatEuro(amount: number): string {
   return new Intl.NumberFormat('de-DE', {
@@ -17,6 +18,15 @@ export function formatAxisEuro(v: number): string {
   if (abs >= 1_000_000) return `${(v / 1_000_000).toLocaleString('de-DE', { maximumFractionDigits: 1 })} Mio`;
   if (abs >= 10_000)    return `${(v / 1_000).toLocaleString('de-DE', { maximumFractionDigits: 0 })}k`;
   return v.toLocaleString('de-DE', { maximumFractionDigits: 0 });
+}
+
+/**
+ * Für HTML, das aus Strings zusammengesetzt wird (Druckansichten). Beschreibungen
+ * kommen auch von Claude (MCP) oder aus CSV-Importen — ungeschützt wären sie
+ * Script-Code unter der Origin der App, mit Zugriff auf die Sitzung.
+ */
+export function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
 }
 
 export function formatDate(isoDate: string): string {
@@ -121,18 +131,21 @@ export function addDays(iso: string, n: number): string {
  * Ohne das Klemmen wandert ein Dauerauftrag vom Monatsende Schritt für Schritt
  * in den Folgemonat und verliert seinen Termin.
  */
-export function addMonths(iso: string, n: number): string {
+export function addMonths(iso: string, n: number, anchorDay?: number): string {
   const [y, m, d] = iso.split('-').map(Number);
   const total     = y * 12 + (m - 1) + n;
   const year      = Math.floor(total / 12);
   const month     = (total % 12 + 12) % 12 + 1;  // 1-basiert, auch bei negativem n
-  const day       = Math.min(d, lastDayOfMonth(year, month));
+  // anchorDay: der ursprüngliche Monatstag. Ohne ihn hängt ein Auftrag vom
+  // 31. nach dem Februar für immer am 28. — jeder Schritt rechnet sonst vom
+  // bereits geklemmten Tag weiter.
+  const day       = Math.min(anchorDay ?? d, lastDayOfMonth(year, month));
   return toISODate(new Date(Date.UTC(year, month - 1, day)));
 }
 
 /** n Jahre addieren. Über addMonths, damit der 29.02. genauso geklemmt wird. */
-export function addYears(iso: string, n: number): string {
-  return addMonths(iso, n * 12);
+export function addYears(iso: string, n: number, anchorDay?: number): string {
+  return addMonths(iso, n * 12, anchorDay);
 }
 
 /**
@@ -205,18 +218,6 @@ export function filterByMonth(transactions: Transaction[], year: number, month: 
   return transactions.filter((t) => isSameMonth(t.date, year, month));
 }
 
-export function filterByDateRange(
-  transactions: Transaction[],
-  from: string | null,
-  to: string | null
-): Transaction[] {
-  return transactions.filter((t) => {
-    if (from && t.date < from) return false;
-    if (to && t.date > to) return false;
-    return true;
-  });
-}
-
 export function groupByCategory(transactions: Transaction[]): Record<string, number> {
   return transactions.reduce(
     (acc, t) => {
@@ -227,15 +228,53 @@ export function groupByCategory(transactions: Transaction[]): Record<string, num
   );
 }
 
+// ── CSV ───────────────────────────────────────────────────────────────────────
+// Format: Datum;Typ;Betrag;Kategorie;Beschreibung;Notiz;Steuer — Semikolon als
+// Trenner, Textfelder in Anführungszeichen (RFC-4180-Quoting, "" für ein
+// Anführungszeichen). Die Spalte Steuer ist optional; alte Exporte ohne sie
+// lassen sich weiterhin einlesen.
+
+function csvQuote(s: string): string {
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+/**
+ * Zerlegt eine CSV-Zeile mit Semikolon-Trenner und berücksichtigt
+ * Anführungszeichen. Vorher wurde an `;` UND `,` gesplittet — damit zerriss
+ * schon der eigene Export ("12,50" wurde zu 12 und "50").
+ */
+export function splitCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') inQuotes = false;
+      else cur += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ';') {
+      out.push(cur); cur = '';
+    } else {
+      cur += c;
+    }
+  }
+  out.push(cur);
+  return out.map(v => v.trim());
+}
+
 export function downloadCSV(transactions: Transaction[]): void {
-  const header = ['Datum', 'Typ', 'Betrag', 'Kategorie', 'Beschreibung', 'Notiz'];
+  const header = ['Datum', 'Typ', 'Betrag', 'Kategorie', 'Beschreibung', 'Notiz', 'Steuer'];
   const rows = transactions.map((t) => [
     formatDate(t.date),
     t.type === 'income' ? 'Einnahme' : 'Ausgabe',
     t.amount.toFixed(2).replace('.', ','),
-    t.category,
-    `"${t.description.replace(/"/g, '""')}"`,
-    `"${(t.note ?? '').replace(/"/g, '""')}"`,
+    csvQuote(t.category),
+    csvQuote(t.description),
+    csvQuote((t.note ?? '').replace(/\r?\n/g, ' | ')),
+    (t.taxAmount ?? 0).toFixed(2).replace('.', ','),
   ]);
   const csv = [header, ...rows].map((r) => r.join(';')).join('\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
@@ -273,12 +312,12 @@ export function parseImportCSV(text: string): CsvParseResult {
   for (let i = start; i < lines.length; i++) {
     const raw = lines[i].trim();
     if (!raw) continue;
-    const cols = raw.split(/[;,]/).map(c => c.replace(/^"|"$/g, '').trim());
+    const cols = splitCsvLine(raw);
     if (cols.length < 5) {
-      errors.push(`Zeile ${i + 1}: zu wenige Spalten (erwartet: Datum;Typ;Betrag;Kategorie;Beschreibung[;Notiz])`);
+      errors.push(`Zeile ${i + 1}: zu wenige Spalten (erwartet: Datum;Typ;Betrag;Kategorie;Beschreibung[;Notiz;Steuer])`);
       continue;
     }
-    const [rawDate, rawType, rawAmount, category, description, note = ''] = cols;
+    const [rawDate, rawType, rawAmount, category, description, note = '', rawTax = ''] = cols;
 
     // parse date: DD.MM.YYYY or YYYY-MM-DD
     let date: string;
@@ -295,9 +334,14 @@ export function parseImportCSV(text: string): CsvParseResult {
     const type: 'income' | 'expense' =
       /einnahme|income/i.test(rawType) ? 'income' : 'expense';
 
-    const amount = parseFloat(rawAmount.replace(',', '.'));
-    if (isNaN(amount) || amount <= 0) {
+    const amount = parseAmount(rawAmount);
+    if (amount === null || amount <= 0) {
       errors.push(`Zeile ${i + 1}: ungültiger Betrag „${rawAmount}"`);
+      continue;
+    }
+    const tax = rawTax ? parseAmount(rawTax) : 0;
+    if (tax === null || !isValidTaxSplit(amount, tax)) {
+      errors.push(`Zeile ${i + 1}: ungültige Steuer „${rawTax}" (0 bis Betrag)`);
       continue;
     }
 
@@ -310,7 +354,10 @@ export function parseImportCSV(text: string): CsvParseResult {
       continue;
     }
 
-    valid.push({ id: crypto.randomUUID(), date, type, amount, category, description, note });
+    valid.push({
+      id: crypto.randomUUID(), date, type, amount: round2(amount), taxAmount: round2(tax),
+      category, description, note,
+    });
   }
 
   return { valid, errors };
@@ -379,7 +426,3 @@ export function buildSeriesColors(accent: string, count = 10, dark = false): str
 export const ACCENT = 'var(--accent)';
 export const CHART_INCOME = 'var(--accent)';
 export const CHART_EXPENSE = '#9CA3AF';
-export const CHART_COLORS = [
-  '#4A6FA5', '#6B8FC4', '#8BAFD0', '#A8C5DA', '#C4D9E6',
-  '#374151', '#6B7280', '#9CA3AF', '#D1D5DB', '#E5E7EB',
-];
