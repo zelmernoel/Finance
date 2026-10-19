@@ -126,9 +126,24 @@ function getSystemPref(): 'light' | 'dark' {
     ? 'dark' : 'light';
 }
 
+// theme-color (Titelleiste der Mac-Web-App, Statusleiste unter Android) soll
+// die Seitenfarbe tragen. index.html kennt nur die Standard-Palette; Paletten
+// und Looks setzen --page-bg zur Laufzeit um. Deshalb nach jeder Änderung die
+// berechnete Farbe von <html> in beide theme-color-Tags schreiben — auch in
+// den gerade nicht aktiven media-Zweig, sonst gewänne beim nächsten Wechsel
+// des Systemmodus wieder der statische Wert aus index.html.
+function syncThemeColor(): void {
+  const color = getComputedStyle(document.documentElement).backgroundColor;
+  if (!color) return;
+  document
+    .querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')
+    .forEach(m => m.setAttribute('content', color));
+}
+
 export function applyTheme(theme: Theme): void {
   const resolved = theme === 'system' ? getSystemPref() : theme;
   document.documentElement.classList.toggle('dark', resolved === 'dark');
+  syncThemeColor();
 }
 
 function applyAccent(color: string): void {
@@ -143,12 +158,14 @@ function applyLook(id: LookId): void {
   // keine Komponente muss davon wissen.
   if (id === DEFAULT_LOOK) document.documentElement.removeAttribute('data-theme');
   else document.documentElement.setAttribute('data-theme', id);
+  syncThemeColor();
 }
 
 function applyPalette(id: PaletteId): void {
   const root = document.documentElement;
   PALETTES.forEach(p => root.classList.remove(`palette-${p.id}`));
   if (id !== 'default') root.classList.add(`palette-${id}`);
+  syncThemeColor();
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {

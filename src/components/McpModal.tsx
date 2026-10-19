@@ -98,7 +98,9 @@ export default function McpModal({ onClose }: Props) {
         aria-labelledby="mcp-modal-title"
         className="fixed z-50 inset-x-0 bottom-0 top-0 lg:inset-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:w-full lg:max-w-lg"
       >
-        <div className="h-full lg:h-auto lg:max-h-[85vh] bg-white dark:bg-gray-800 lg:rounded-xl shadow-2xl flex flex-col overflow-hidden sheet-enter lg:modal-enter">
+        {/* Auf dem Handy vollflächig: Kopf mit Schliessen-Knopf unter die
+            Statusleiste, Fuss über den Home-Indikator schieben. */}
+        <div className="h-full lg:h-auto lg:max-h-[85vh] bg-white dark:bg-gray-800 lg:rounded-xl shadow-2xl flex flex-col overflow-hidden sheet-enter lg:modal-enter pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] lg:pt-0 lg:pb-0">
           {/* Kopf */}
           <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
             <ClaudeMark className="w-6 h-6" />

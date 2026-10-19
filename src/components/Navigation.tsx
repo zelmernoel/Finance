@@ -110,7 +110,9 @@ export default function Navigation() {
   return (
     <>
       {/* ── Desktop Top Nav (hidden on mobile) ───────────────────────────────── */}
-      <nav className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 sticky top-0 z-10 hidden lg:block">
+      {/* top: unter der Statusleiste festkleben statt darunter — betrifft nur
+          ein iPad im Querformat als installierte App, sonst ist env() 0. */}
+      <nav className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 sticky top-[env(safe-area-inset-top)] z-10 hidden lg:block">
         <div className="max-w-screen-xl mx-auto px-6">
           <div className="flex items-center gap-0">
             {/* Logo */}
@@ -244,8 +246,11 @@ export default function Navigation() {
       </nav>
 
       {/* ── Mobile Bottom Nav (hidden on lg+) ────────────────────────────────── */}
+      {/* pb: Home-Indikator des iPhones freihalten. Die Nav wird dadurch um
+          genau env(safe-area-inset-bottom) höher — "Mehr"-Sheet, Toast und das
+          Seitenende in MainApp rechnen denselben Betrag auf. */}
       <nav className="fixed bottom-0 inset-x-0 z-10 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 lg:hidden">
-        <div className="flex items-end justify-around px-1 pt-1 pb-2">
+        <div className="flex items-end justify-around px-1 pt-1 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
           {MOBILE_TABS.map((t) => {
             if (t.to === ROUTES.new) {
               return (
@@ -318,7 +323,7 @@ export default function Navigation() {
             className="fixed inset-0 z-20 lg:hidden"
             onClick={() => setMoreOpen(false)}
           />
-          <div className="sheet-enter fixed bottom-[60px] inset-x-0 z-30 lg:hidden">
+          <div className="sheet-enter fixed bottom-[calc(60px+env(safe-area-inset-bottom))] inset-x-0 z-30 lg:hidden">
             <div className="mx-3 mb-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
               {([
                 { to: ROUTES.recurring, label: 'Daueraufträge', desc: 'Wiederkehrende Buchungen verwalten' },

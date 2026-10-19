@@ -319,11 +319,22 @@ export default function MainApp() {
   };
 
   return (
-    <div className="min-h-screen bg-page">
+    // Safe Areas: Als installierte Web-App liegt die iOS-Statusleiste über der
+    // Seite (black-translucent). Auf dem Handy gibt es oben keine Leiste, die den
+    // Abstand tragen könnte — die Desktop-Navigation ist dort ausgeblendet —,
+    // also schiebt der äussere Rahmen alles unter die Statusleiste. Der fixierte
+    // Streifen hält diese Fläche beim Scrollen in Seitenfarbe, sonst liefe Text
+    // unter der Uhr durch. Am Desktop und im normalen Browser ist env() 0 und
+    // beides wirkungslos.
+    <div className="min-h-screen bg-page pt-[env(safe-area-inset-top)]">
+      <div
+        aria-hidden="true"
+        className="fixed top-0 inset-x-0 z-[15] h-[env(safe-area-inset-top)] bg-page"
+      />
       {!user && <GuestBanner />}
       <Navigation />
 
-      <main className="max-w-screen-xl mx-auto px-4 lg:px-6 py-4 lg:py-6 pb-24 lg:pb-6">
+      <main className="max-w-screen-xl mx-auto px-4 lg:px-6 py-4 lg:py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] lg:pb-6">
         <div key={location.pathname} className="tab-enter">
           <Outlet context={ctx} />
         </div>
