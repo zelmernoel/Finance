@@ -2,9 +2,11 @@ import { supabase } from './supabase';
 import type { SavingsPot, PotAllocation } from '../types';
 
 // ── Savings pots storage (Supabase only, scoped to one budget) ────────────────
-// Sparttöpfe existieren nur für eingeloggte Nutzer. Verteilung, Rückabwicklung
-// und die 100%-Grenze erzwingen DB-Trigger (supabase/savings-pots.sql); dieser
-// Adapter macht reines CRUD auf savings_pots + Lesen von pot_allocations.
+// Sparttöpfe existieren nur für eingeloggte Nutzer. Verteilung, Rückabwicklung,
+// Steuertopf und die 100%-Grenze erzwingen DB-Trigger (supabase/savings-pots.sql
+// + supabase/tax.sql); dieser Adapter macht reines CRUD auf savings_pots + Lesen
+// von pot_allocations. Der Steuertopf (kind = 'tax') wird nie hier angelegt —
+// das tut der Trigger beim ersten Buchen mit Steuer.
 
 function toNum(v: unknown): number {
   return typeof v === 'string' ? parseFloat(v) : Number(v ?? 0);
@@ -15,6 +17,7 @@ function rowToPot(row: Record<string, unknown>): SavingsPot {
     id:                String(row.id),
     budgetId:          String(row.budget_id ?? ''),
     name:              String(row.name ?? ''),
+    kind:              row.kind === 'tax' ? 'tax' : 'manual',
     allocationPercent: toNum(row.allocation_percent),
     targetAmount:      row.target_amount != null ? toNum(row.target_amount) : undefined,
     currentAmount:     toNum(row.current_amount),
@@ -29,17 +32,18 @@ function rowToPot(row: Record<string, unknown>): SavingsPot {
 function rowToAllocation(row: Record<string, unknown>): PotAllocation {
   return {
     id:                  String(row.id),
-    potId:               String(row.pot_id ?? ''),
-    incomeTransactionId: String(row.income_transaction_id ?? ''),
-    amount:              toNum(row.amount),
-    createdAt:           String(row.created_at ?? ''),
+    potId:         String(row.pot_id ?? ''),
+    transactionId: String(row.transaction_id ?? ''),
+    kind:          row.kind === 'tax' ? 'tax' : 'percent',
+    amount:        toNum(row.amount),
+    createdAt:     String(row.created_at ?? ''),
   };
 }
 
 export interface SavingsPotsStorage {
   getPots(): Promise<SavingsPot[]>;
-  addPot(p: Omit<SavingsPot, 'currentAmount' | 'createdAt' | 'updatedAt'>): Promise<SavingsPot>;
-  updatePot(id: string, patch: Partial<Omit<SavingsPot, 'id' | 'budgetId' | 'currentAmount' | 'createdAt' | 'updatedAt'>>): Promise<SavingsPot>;
+  addPot(p: Omit<SavingsPot, 'kind' | 'currentAmount' | 'createdAt' | 'updatedAt'>): Promise<SavingsPot>;
+  updatePot(id: string, patch: Partial<Omit<SavingsPot, 'id' | 'budgetId' | 'kind' | 'currentAmount' | 'createdAt' | 'updatedAt'>>): Promise<SavingsPot>;
   deletePot(id: string): Promise<void>;
   getAllocations(potId: string, limit?: number): Promise<PotAllocation[]>;
 }
@@ -88,9 +92,11 @@ export function createSavingsPotsAdapter(userId: string, budgetId: string): Savi
     },
 
     async deletePot(id) {
+      // Der Steuertopf trägt die Steuer aller Buchungen; ohne ihn wäre der
+      // Bestand beim nächsten Buchen falsch. Deshalb nur manuelle Töpfe.
       const { error } = await supabase
         .from('savings_pots')
-        .delete().eq('id', id).eq('user_id', userId);
+        .delete().eq('id', id).eq('user_id', userId).eq('kind', 'manual');
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
     },
 

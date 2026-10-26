@@ -11,6 +11,7 @@ import { createLocalStorageAdapter } from '../lib/localStorageAdapter';
 import Card from '../components/Card';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { formatEuro, ACCENT, getLast12Months, formatAxisEuro, CHART_EXPENSE } from '../utils';
+import { parseAmount } from '../lib/money';
 import { useChartTheme } from '../hooks/useChartTheme';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -117,7 +118,9 @@ export default function BudgetsPage() {
   const [formName, setFormName] = useState('');
   const [formType, setFormType] = useState<Budget['type']>('personal');
   const [formBalance, setFormBalance] = useState('');
-  const [formColor, setFormColor] = useState(ACCENT);
+  // Konkreter Hex-Wert: ACCENT ist 'var(--accent)' und würde als Farbe des
+  // Bereichs gespeichert — unlesbar für MCP, und kein Farbfeld wäre markiert.
+  const [formColor, setFormColor] = useState(PRESET_COLORS[0]);
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -126,9 +129,12 @@ export default function BudgetsPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      const balance = parseFloat(formBalance.replace(',', '.')) || 0;
+      const balance = formBalance.trim() ? parseAmount(formBalance) : 0;
+      if (balance === null) { alert('Das Startguthaben ist keine gültige Zahl.'); return; }
       await createBudget(formName.trim(), formType, balance, formColor);
       setFormName(''); setFormBalance(''); setShowForm(false);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Bereich konnte nicht angelegt werden.');
     } finally {
       setSaving(false);
     }
@@ -246,9 +252,12 @@ export default function BudgetsPage() {
                   {budgets.map(b => {
                     const bal = balances[b.id] ?? 0;
                     if (bal <= 0) return null;
+                    // Nur positive Guthaben bilden die Basis — ein negativer
+                    // Bereich würde die anderen Balken über 100 % strecken.
+                    const positiveTotal = budgets.reduce((s, x) => s + Math.max(0, balances[x.id] ?? 0), 0);
                     return (
                       <div key={b.id} title={`${b.name}: ${formatEuro(bal)}`}
-                        style={{ width: `${(bal / Math.max(1, totalBalance)) * 100}%`, backgroundColor: b.color }} />
+                        style={{ width: `${(bal / Math.max(1, positiveTotal)) * 100}%`, backgroundColor: b.color }} />
                     );
                   })}
                 </div>
@@ -370,19 +379,21 @@ function BudgetCard({
   onUpdate: (id: string, patch: Partial<Budget>) => Promise<void>;
 }) {
   const [editName, setEditName] = useState(budget.name);
-  const [editBalance, setEditBalance] = useState(String(budget.startingBalance));
+  const [editType, setEditType] = useState<Budget['type']>(budget.type);
   const [saving, setSaving] = useState(false);
 
   const isEditing = editingId === budget.id;
 
+  // Bearbeitbar sind Name und Art. Der Anfangssaldo gehört zu den Einstellungen
+  // des Bereichs (dort rechnet ihn der Kontostand ein) — das Feld hier schrieb
+  // in budgets.starting_balance, das nirgends gelesen wurde.
   async function handleSave() {
     setSaving(true);
     try {
-      await onUpdate(budget.id, {
-        name: editName.trim() || budget.name,
-        startingBalance: parseFloat(editBalance.replace(',', '.')) || 0,
-      });
+      await onUpdate(budget.id, { name: editName.trim() || budget.name, type: editType });
       setEditingId(null);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Änderung fehlgeschlagen.');
     } finally {
       setSaving(false);
     }
@@ -399,11 +410,14 @@ function BudgetCard({
                 value={editName} onChange={e => setEditName(e.target.value)}
                 className="flex-1 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]"
               />
-              <input
-                value={editBalance} onChange={e => setEditBalance(e.target.value)}
-                placeholder="Startguthaben"
-                className="w-28 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-[#4A6FA5]"
-              />
+              <select
+                value={editType} onChange={e => setEditType(e.target.value as Budget['type'])}
+                title="Art des Bereichs — Firma schaltet die Steuerfelder frei"
+                className="w-28 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]"
+              >
+                <option value="personal">Privat</option>
+                <option value="business">Firma</option>
+              </select>
             </div>
           ) : (
             <div className="flex items-center gap-3">
@@ -458,7 +472,7 @@ function BudgetCard({
                 className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300">Abbruch</button>
             </>
           ) : (
-            <button onClick={() => { setEditName(budget.name); setEditBalance(String(budget.startingBalance)); setEditingId(budget.id); }}
+            <button onClick={() => { setEditName(budget.name); setEditType(budget.type); setEditingId(budget.id); }}
               className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}

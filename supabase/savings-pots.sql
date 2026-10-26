@@ -5,6 +5,11 @@
 -- Verteilung, Rückabwicklung und die 100%-Grenze laufen server-
 -- seitig über Trigger — nicht im Client. Funktioniert daher nur
 -- für eingeloggte Nutzer (Gast-Modus hat keine Töpfe).
+--
+-- HINWEIS: Die Trigger-Funktionen hier sind die Erstfassung. Sie
+-- werden von supabase/tax.sql ersetzt (Steuertopf, Netto-Verteilung,
+-- Spalte pot_allocations.transaction_id). Reihenfolge bei einer
+-- Neuinstallation: schema.sql → savings-pots.sql → mcp-schema.sql → tax.sql.
 -- ============================================================
 
 -- ── savings_pots ─────────────────────────────────────────────

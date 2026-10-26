@@ -295,10 +295,14 @@ body {
   animation: sheetEnter 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Modal: fade + gentle scale */
+/* Modal: fade + gentle scale.
+   Kein translateY hier: die Zentrierung macht Tailwinds -translate-y-1/2 über
+   die eigenständige CSS-Eigenschaft `translate` (v4). Ein zusätzliches
+   transform: translateY(-50%) addierte sich dazu — die Modale hingen um ihre
+   ganze Höhe zu weit oben. */
 @keyframes modalEnter {
-  from { opacity: 0; transform: translateY(-50%) scale(0.96); }
-  to   { opacity: 1; transform: translateY(-50%) scale(1); }
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
 }
 .modal-enter {
   animation: modalEnter 0.18s cubic-bezier(0.16, 1, 0.3, 1) both;

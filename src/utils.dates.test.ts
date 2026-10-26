@@ -420,3 +420,28 @@ test('die alte UTC-Fassung weicht nachweislich ab — der Test hat Zähne', () =
   assert.ok(abweichungen.some(a => a.includes('00:30')), 'kein Vortag-Fall gefunden');
   assert.ok(abweichungen.some(a => a.includes('23:30')), 'kein Folgetag-Fall gefunden');
 });
+
+// ── Monatstag-Anker für Daueraufträge ─────────────────────────────────────────
+// Ohne Anker rechnet jeder Schritt vom bereits geklemmten Tag weiter: ein
+// Auftrag vom 31.01. landet am 28.02. und bleibt danach für immer am 28.
+
+test('calcNextDue mit Anker kehrt nach dem Februar zum Monatsletzten zurück', () => {
+  let d = '2026-01-31';
+  const seen: string[] = [];
+  for (let i = 0; i < 4; i++) { d = calcNextDue(d, 'monthly', 31); seen.push(d); }
+  assert.deepEqual(seen, ['2026-02-28', '2026-03-31', '2026-04-30', '2026-05-31']);
+});
+
+test('calcNextDue ohne Anker bleibt am geklemmten Tag hängen (altes Verhalten)', () => {
+  let d = '2026-01-31';
+  d = calcNextDue(d, 'monthly');
+  d = calcNextDue(d, 'monthly');
+  assert.equal(d, '2026-03-28');
+});
+
+test('addMonths mit Anker: Schaltjahr und Jahreswechsel', () => {
+  assert.equal(addMonths('2027-01-31', 1, 31), '2027-02-28');
+  assert.equal(addMonths('2028-01-31', 1, 31), '2028-02-29');
+  assert.equal(addMonths('2026-12-31', 2, 31), '2027-02-28');
+  assert.equal(addYears('2028-02-29', 1, 29), '2029-02-28');
+});

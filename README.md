@@ -25,7 +25,7 @@ npm install
 ### 2. Supabase-Projekt erstellen
 
 1. Auf [supabase.com](https://supabase.com) einloggen und ein neues Projekt anlegen.
-2. Im **SQL Editor** den Inhalt von `supabase/schema.sql` ausführen — das legt alle Tabellen mit Row Level Security an.
+2. Im **SQL Editor** nacheinander ausführen: `supabase/schema.sql` (Tabellen + RLS), `supabase/savings-pots.sql` (Sparttöpfe), `supabase/mcp-schema.sql` (MCP-Zugriff, siehe `MCP-SETUP.md`) und `supabase/tax.sql` (Steuer, Steuertopf, Kategorie-Vorbelegungen).
 3. Unter **Project Settings → API** die folgenden Werte kopieren:
    - `Project URL`
    - `anon / public` Key
@@ -75,8 +75,23 @@ jeder Nutzer sieht ausschließlich seine eigenen Transaktionen, Kategorien und E
 
 | Tab | Inhalt |
 |-----|--------|
-| Dashboard | KPI-Karten, Einnahmen/Ausgaben-Chart, Kontostandsverlauf, Donut-Chart |
+| Dashboard | Verfügbar (= Kontostand − Sparttöpfe) als Haupt-KPI, Einnahmen/Ausgaben-Chart, Kontostandsverlauf, Donut-Chart |
 | Transaktionen | Tabelle mit Filter, Suche, Sortierung, Löschen, CSV-Export |
-| Neue Transaktion | Formular + eigene Kategorien |
+| Neue Buchung | Wizard in vier Schritten: Was (Typ + Kategorie) → Wie viel (im Firmenbereich mit Brutto/Netto/Steuer) → Details (Datum, Beschreibung, Dauerauftrag, Beleg, Notizen) → Prüfen |
 | Auswertungen | Top-5-Kategorien, Ø-Ausgaben, Spartrend, Ausgabenrhythmus, Jahresübersicht |
-| Einstellungen | Profil, Startsaldo, CSV/JSON-Export, CSV-Import, Kategorieverwaltung, Datensatz-Reset |
+| Sparttöpfe | Manuelle Töpfe (Prozent vom Netto jeder Einnahme) und der automatische Steuertopf (Umsatzsteuer rein, Vorsteuer raus) |
+| Daueraufträge | Übersicht, Pausieren/Aktivieren; angelegt werden sie im Buchungs-Wizard |
+| Einstellungen | Profil, Startsaldo, Kontostand-Abgleich, CSV/JSON-Export, CSV-Import, Kategorien mit Vorbelegungen (Steuersatz, Dauerauftrag), Datensatz-Reset |
+
+## Steuer (Firmenbereiche)
+
+Jede Buchung speichert den **Bruttobetrag** (`amount`, zählt zum Kontostand) und die darin **enthaltene Steuer** (`tax_amount`); Netto ist die Differenz. Beispiel: 1.499,40 € brutto bei 19 % → 1.260,00 € netto, 239,40 € USt (nicht 19 % vom Brutto — das wäre Steuer auf die Steuer).
+
+Die Verteilung macht die Datenbank (Trigger in `supabase/tax.sql`), damit App, Daueraufträge und der MCP-Server dasselbe tun:
+
+- Einnahme mit Steuer → Umsatzsteuer in den Steuertopf
+- Ausgabe mit Steuer → Vorsteuer aus dem Steuertopf (Vorsteuerabzug)
+- Zahlung ans Finanzamt / Erstattung → Buchung, die zu 100 % aus Steuer besteht (im Wizard: „Zahlung ans Finanzamt“)
+- Prozent-Töpfe bekommen ihren Anteil vom Netto
+
+„Verfügbar“ im Dashboard ist der Kontostand abzüglich aller Töpfe — der Steuertopf eingeschlossen, denn dieses Geld gehört dem Finanzamt.

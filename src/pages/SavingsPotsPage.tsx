@@ -1,11 +1,21 @@
-import { useState, useEffect, useCallback, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import type { SavingsPot, PotAllocation } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { useBudget } from '../context/BudgetContext';
-import { createSavingsPotsAdapter } from '../lib/savingsPotsAdapter';
+import type { SavingsPotsStorage } from '../lib/savingsPotsAdapter';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import { formatEuro, formatDate, ACCENT } from '../utils';
+import { parseAmount } from '../lib/money';
+
+// Die Töpfe selbst kommen aus dem App-Kontext (MainApp lädt sie mit den
+// Transaktionen, weil jede Buchung sie über den DB-Trigger verändert).
+// Diese Seite legt an, ändert, löscht — und meldet das nach oben.
+interface Props {
+  pots: SavingsPot[];
+  adapter: SavingsPotsStorage | null;
+  onChanged: () => Promise<void>;
+}
 
 const PRESET_COLORS = [
   '#4A6FA5', '#2D6A4F', '#6B4C9A', '#C77D00', '#B5001B',
@@ -22,12 +32,10 @@ interface FormState {
 }
 const EMPTY_FORM: FormState = { name: '', percent: '', target: '', color: ACCENT, icon: '' };
 
-export default function SavingsPotsPage() {
+export default function SavingsPotsPage({ pots, adapter, onChanged }: Props) {
   const { user } = useAuth();
   const { activeBudgetId, activeBudget } = useBudget();
 
-  const [pots, setPots]       = useState<SavingsPot[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
 
   const [formOpen, setFormOpen]     = useState(false);
@@ -41,28 +49,14 @@ export default function SavingsPotsPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [history, setHistory]       = useState<Record<string, PotAllocation[] | 'loading'>>({});
 
-  const load = useCallback(async () => {
-    if (!user || !activeBudgetId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const adapter = createSavingsPotsAdapter(user.id, activeBudgetId);
-      setPots(await adapter.getPots());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unbekannter Fehler');
-    } finally {
-      setLoading(false);
-    }
-  }, [user, activeBudgetId]);
-
-  useEffect(() => { load(); }, [load]);
-
   // ── Derived allocation figures ─────────────────────────────────────────────
-  const totalAllocated = pots.reduce((s, p) => s + p.allocationPercent, 0);
+  // Nur manuelle Töpfe zählen zur 100 %-Grenze; der Steuertopf hat 0 %.
+  const manualPots     = pots.filter(p => p.kind === 'manual');
+  const totalAllocated = manualPots.reduce((s, p) => s + p.allocationPercent, 0);
   const otherAllocated = editingId
     ? totalAllocated - (pots.find(p => p.id === editingId)?.allocationPercent ?? 0)
     : totalAllocated;
-  const inputPercent = parseFloat(form.percent.replace(',', '.')) || 0;
+  const inputPercent = parseAmount(form.percent) ?? 0;
   const freeAfter    = Math.round((100 - otherAllocated - inputPercent) * 100) / 100;
   const overbooked   = freeAfter < 0;
   const isFull        = totalAllocated >= 100;
@@ -97,33 +91,35 @@ export default function SavingsPotsPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!user || !activeBudgetId) return;
+    if (!adapter || !activeBudgetId) return;
+    const editing = editingId ? pots.find(p => p.id === editingId) : undefined;
+    const isTax = editing?.kind === 'tax';
     const name = form.name.trim();
     if (!name) { setFormError('Bitte einen Namen eingeben.'); return; }
-    if (inputPercent < 0 || inputPercent > 100) { setFormError('Prozentsatz muss zwischen 0 und 100 liegen.'); return; }
-    if (overbooked) { setFormError('Gesamtzuteilung überschreitet 100 %.'); return; }
-    const target = form.target.trim() ? parseFloat(form.target.replace(',', '.')) : undefined;
-    if (target !== undefined && (isNaN(target) || target < 0)) { setFormError('Ungültiges Sparziel.'); return; }
+    if (!isTax && (inputPercent < 0 || inputPercent > 100)) { setFormError('Prozentsatz muss zwischen 0 und 100 liegen.'); return; }
+    if (!isTax && overbooked) { setFormError('Gesamtzuteilung überschreitet 100 %.'); return; }
+    const target = form.target.trim() ? parseAmount(form.target) : undefined;
+    if (target === null || (target !== undefined && target < 0)) { setFormError('Ungültiges Sparziel.'); return; }
 
     setSaving(true);
     setFormError(null);
     try {
-      const adapter = createSavingsPotsAdapter(user.id, activeBudgetId);
       if (editingId) {
-        const updated = await adapter.updatePot(editingId, {
-          name, allocationPercent: inputPercent, targetAmount: target,
+        await adapter.updatePot(editingId, {
+          name, targetAmount: target,
           color: form.color, icon: form.icon || undefined,
+          // Der Steuertopf bleibt bei 0 % — der Trigger lehnt alles andere ab.
+          ...(isTax ? {} : { allocationPercent: inputPercent }),
         });
-        setPots(prev => prev.map(p => p.id === editingId ? updated : p));
       } else {
         const maxSort = pots.reduce((m, p) => Math.max(m, p.sortOrder), -1);
-        const created = await adapter.addPot({
+        await adapter.addPot({
           id: crypto.randomUUID(), budgetId: activeBudgetId,
           name, allocationPercent: inputPercent, targetAmount: target,
           color: form.color, icon: form.icon || undefined, sortOrder: maxSort + 1,
         });
-        setPots(prev => [...prev, created]);
       }
+      await onChanged();
       closeForm();
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Fehler beim Speichern.');
@@ -133,11 +129,10 @@ export default function SavingsPotsPage() {
   }
 
   async function handleDelete(id: string) {
-    if (!user || !activeBudgetId) return;
+    if (!adapter) return;
     try {
-      const adapter = createSavingsPotsAdapter(user.id, activeBudgetId);
       await adapter.deletePot(id);
-      setPots(prev => prev.filter(p => p.id !== id));
+      await onChanged();
       setDeleteConfirm(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Fehler beim Löschen.');
@@ -147,16 +142,22 @@ export default function SavingsPotsPage() {
   async function toggleHistory(potId: string) {
     if (expandedId === potId) { setExpandedId(null); return; }
     setExpandedId(potId);
-    if (!history[potId] && user && activeBudgetId) {
+    if (!history[potId] && adapter) {
       setHistory(prev => ({ ...prev, [potId]: 'loading' }));
       try {
-        const adapter = createSavingsPotsAdapter(user.id, activeBudgetId);
         const rows = await adapter.getAllocations(potId);
         setHistory(prev => ({ ...prev, [potId]: rows }));
       } catch {
         setHistory(prev => ({ ...prev, [potId]: [] }));
       }
     }
+  }
+
+  // Verlauf neu laden, sobald sich der Bestand ändert (neue Buchung).
+  function reloadHistory(potId: string) {
+    setHistory(prev => { const next = { ...prev }; delete next[potId]; return next; });
+    setExpandedId(null);
+    void toggleHistory(potId);
   }
 
   // ── Guest hint ─────────────────────────────────────────────────────────────
@@ -184,7 +185,7 @@ export default function SavingsPotsPage() {
         <div className="min-w-0">
           <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">Sparttöpfe</h1>
           <p className="text-xs text-gray-400 dark:text-gray-500 truncate">
-            {activeBudget?.name ?? 'Bereich'} · Einnahmen automatisch verteilen
+            {activeBudget?.name ?? 'Bereich'} · reserviert, nicht verfügbar
           </p>
         </div>
         <button
@@ -197,16 +198,16 @@ export default function SavingsPotsPage() {
       </div>
 
       {/* ── Allocation overview ─────────────────────────────────────────────── */}
-      {pots.length > 0 && (
+      {manualPots.length > 0 && (
         <Card className="p-4">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Verplant</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Verplant je Netto-Einnahme</p>
             <p className="text-xs font-semibold text-gray-700 dark:text-gray-300 tabular-nums">
               {totalAllocated.toFixed(totalAllocated % 1 === 0 ? 0 : 2)} % · {(100 - totalAllocated).toFixed((100 - totalAllocated) % 1 === 0 ? 0 : 2)} % frei
             </p>
           </div>
           <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700">
-            {pots.map(p => (
+            {manualPots.map(p => (
               <div key={p.id} style={{ width: `${Math.min(100, p.allocationPercent)}%`, backgroundColor: p.color }} title={`${p.name}: ${p.allocationPercent} %`} />
             ))}
           </div>
@@ -236,14 +237,20 @@ export default function SavingsPotsPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
+              {pots.find(p => p.id === editingId)?.kind === 'tax' ? (
+                <div className="col-span-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded px-3 py-2">
+                  Der Steuertopf wird automatisch aus den Buchungen befüllt (Umsatzsteuer rein, Vorsteuer raus) und hat keinen Prozentanteil.
+                </div>
+              ) : (
               <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Anteil je Einnahme (%)</label>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Anteil je Netto-Einnahme (%)</label>
                 <input
                   value={form.percent} onChange={e => setForm(f => ({ ...f, percent: e.target.value }))}
                   inputMode="decimal" placeholder="0"
                   className={`w-full border rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none ${overbooked ? 'border-red-400 focus:border-red-500' : 'border-gray-200 dark:border-gray-600 focus:border-[#4A6FA5]'}`}
                 />
               </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Sparziel (€, optional)</label>
                 <input
@@ -255,11 +262,13 @@ export default function SavingsPotsPage() {
             </div>
 
             {/* Live free-percent hint */}
-            <div className={`text-xs rounded px-3 py-2 ${overbooked ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'bg-gray-50 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400'}`}>
-              {overbooked
-                ? `${Math.abs(freeAfter).toFixed(Math.abs(freeAfter) % 1 === 0 ? 0 : 2)} % über der 100 %-Grenze — bitte reduzieren.`
-                : `Noch ${freeAfter.toFixed(freeAfter % 1 === 0 ? 0 : 2)} % frei verfügbar (bleibt unverplant).`}
-            </div>
+            {pots.find(p => p.id === editingId)?.kind !== 'tax' && (
+              <div className={`text-xs rounded px-3 py-2 ${overbooked ? 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400' : 'bg-gray-50 dark:bg-gray-700/50 text-gray-500 dark:text-gray-400'}`}>
+                {overbooked
+                  ? `${Math.abs(freeAfter).toFixed(Math.abs(freeAfter) % 1 === 0 ? 0 : 2)} % über der 100 %-Grenze — bitte reduzieren.`
+                  : `Noch ${freeAfter.toFixed(freeAfter % 1 === 0 ? 0 : 2)} % frei verfügbar (bleibt unverplant).`}
+              </div>
+            )}
 
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Farbe</label>
@@ -293,7 +302,7 @@ export default function SavingsPotsPage() {
             {formError && <p className="text-sm text-red-600 dark:text-red-400">{formError}</p>}
 
             <div className="flex gap-3 pt-1">
-              <button type="submit" disabled={saving || overbooked}
+              <button type="submit" disabled={saving || (overbooked && pots.find(p => p.id === editingId)?.kind !== 'tax')}
                 className="flex-1 py-2.5 text-sm font-semibold text-white rounded disabled:opacity-50"
                 style={{ backgroundColor: ACCENT }}>
                 {saving ? 'Speichern…' : editingId ? 'Speichern' : 'Topf anlegen'}
@@ -308,18 +317,15 @@ export default function SavingsPotsPage() {
       )}
 
       {/* ── List ────────────────────────────────────────────────────────────── */}
-      {loading ? (
-        <Card className="p-8 text-center">
-          <div className="w-6 h-6 border-2 border-gray-200 dark:border-gray-700 rounded-full animate-spin mx-auto" style={{ borderTopColor: ACCENT }} />
+      {error && (
+        <Card className="p-4 text-center">
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+          <button onClick={() => setError(null)} className="text-xs text-gray-400 mt-1">Ausblenden</button>
         </Card>
-      ) : error ? (
-        <Card className="p-6 text-center">
-          <p className="text-sm text-red-600 dark:text-red-400 mb-3">{error}</p>
-          <button onClick={load} className="text-sm px-4 py-2 text-white rounded" style={{ backgroundColor: ACCENT }}>Erneut versuchen</button>
-        </Card>
-      ) : pots.length === 0 ? (
+      )}
+      {pots.length === 0 ? (
         <EmptyState
-          message="Noch keine Sparttöpfe. Lege einen an, um Einnahmen automatisch zu verteilen."
+          message="Noch keine Sparttöpfe. Lege einen an, um Einnahmen automatisch zu verteilen. Der Steuertopf entsteht von selbst bei der ersten Buchung mit Steuer."
           action={{ label: 'Ersten Topf anlegen', onClick: openCreate }}
         />
       ) : (
@@ -341,7 +347,7 @@ export default function SavingsPotsPage() {
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{pot.name}</p>
                       <span className="text-xs font-semibold px-1.5 py-0.5 rounded flex-shrink-0" style={{ color: pot.color, backgroundColor: `${pot.color}1a` }}>
-                        {pot.allocationPercent.toFixed(pot.allocationPercent % 1 === 0 ? 0 : 2)} %
+                        {pot.kind === 'tax' ? 'Steuer · automatisch' : `${pot.allocationPercent.toFixed(pot.allocationPercent % 1 === 0 ? 0 : 2)} %`}
                       </span>
                     </div>
                     <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums mt-0.5">
@@ -350,6 +356,13 @@ export default function SavingsPotsPage() {
                         <span className="text-xs font-normal text-gray-400 dark:text-gray-500"> / {formatEuro(pot.targetAmount as number)}</span>
                       )}
                     </p>
+                    {pot.kind === 'tax' && (
+                      <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
+                        {pot.currentAmount < 0
+                          ? 'Vorsteuerüberhang: das Finanzamt schuldet dir diesen Betrag.'
+                          : 'Umsatzsteuer aus Einnahmen abzüglich Vorsteuer aus Ausgaben — ans Finanzamt abzuführen.'}
+                      </p>
+                    )}
 
                     {hasTarget && (
                       <div className="mt-2">
@@ -370,7 +383,7 @@ export default function SavingsPotsPage() {
                         </svg>
                       </button>
                       <button onClick={() => openEdit(pot)} className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Bearbeiten</button>
-                      {deleteConfirm === pot.id ? (
+                      {pot.kind === 'tax' ? null : deleteConfirm === pot.id ? (
                         <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2">
                           {pot.currentAmount > 0 ? `${formatEuro(pot.currentAmount)} werden freigegeben.` : 'Löschen?'}
                           <button onClick={() => handleDelete(pot.id)} className="px-2 py-0.5 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded">Ja</button>
@@ -386,15 +399,27 @@ export default function SavingsPotsPage() {
                         {rows === 'loading' || rows === undefined ? (
                           <p className="text-xs text-gray-400 dark:text-gray-500">Lädt…</p>
                         ) : rows.length === 0 ? (
-                          <p className="text-xs text-gray-400 dark:text-gray-500">Noch keine Zuweisungen. Sie entstehen automatisch bei neuen Einnahmen.</p>
+                          <p className="text-xs text-gray-400 dark:text-gray-500">
+                            {pot.kind === 'tax'
+                              ? 'Noch keine Steuer gebucht. Sie entsteht bei Buchungen mit enthaltener Steuer.'
+                              : 'Noch keine Zuweisungen. Sie entstehen automatisch bei neuen Einnahmen.'}
+                          </p>
                         ) : (
                           <ul className="space-y-1">
                             {rows.map(r => (
-                              <li key={r.id} className="flex items-center justify-between text-xs">
+                              <li key={r.id} className="flex items-center justify-between text-xs gap-2">
                                 <span className="text-gray-400 dark:text-gray-500">{formatDate(r.createdAt.slice(0, 10))}</span>
-                                <span className="text-gray-700 dark:text-gray-300 tabular-nums">+ {formatEuro(r.amount)}</span>
+                                <span className="text-gray-400 dark:text-gray-500 flex-1 truncate">
+                                  {r.kind === 'tax' ? (r.amount < 0 ? 'Vorsteuer' : 'Umsatzsteuer') : 'Anteil'}
+                                </span>
+                                <span className={`tabular-nums ${r.amount < 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300'}`}>
+                                  {r.amount < 0 ? '−' : '+'} {formatEuro(Math.abs(r.amount))}
+                                </span>
                               </li>
                             ))}
+                            <li className="pt-1">
+                              <button onClick={() => reloadHistory(pot.id)} className="text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">Aktualisieren</button>
+                            </li>
                           </ul>
                         )}
                       </div>
