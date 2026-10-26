@@ -24,6 +24,8 @@ function rowToPot(row: Record<string, unknown>): SavingsPot {
     color:             String(row.color ?? '#4A6FA5'),
     icon:              row.icon != null ? String(row.icon) : undefined,
     sortOrder:         toNum(row.sort_order),
+    // Vor der Migration fehlt die Spalte — dann gilt jeder Topf als aktiv.
+    isActive:          row.is_active !== false,
     createdAt:         String(row.created_at ?? ''),
     updatedAt:         String(row.updated_at ?? ''),
   };
@@ -42,7 +44,7 @@ function rowToAllocation(row: Record<string, unknown>): PotAllocation {
 
 export interface SavingsPotsStorage {
   getPots(): Promise<SavingsPot[]>;
-  addPot(p: Omit<SavingsPot, 'kind' | 'currentAmount' | 'createdAt' | 'updatedAt'>): Promise<SavingsPot>;
+  addPot(p: Omit<SavingsPot, 'kind' | 'currentAmount' | 'isActive' | 'createdAt' | 'updatedAt'>): Promise<SavingsPot>;
   updatePot(id: string, patch: Partial<Omit<SavingsPot, 'id' | 'budgetId' | 'kind' | 'currentAmount' | 'createdAt' | 'updatedAt'>>): Promise<SavingsPot>;
   deletePot(id: string): Promise<void>;
   getAllocations(potId: string, limit?: number): Promise<PotAllocation[]>;
@@ -84,10 +86,17 @@ export function createSavingsPotsAdapter(userId: string, budgetId: string): Savi
       if (patch.color             !== undefined) dbPatch.color              = patch.color;
       if (patch.icon              !== undefined) dbPatch.icon               = patch.icon ?? null;
       if (patch.sortOrder         !== undefined) dbPatch.sort_order         = patch.sortOrder;
+      if (patch.isActive          !== undefined) dbPatch.is_active          = patch.isActive;
       const { data, error } = await supabase
         .from('savings_pots')
         .update(dbPatch).eq('id', id).eq('user_id', userId).select().single();
-      if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
+      if (error) {
+        console.error('[Supabase Error]', error.message, error);
+        if (/is_active/.test(error.message)) {
+          throw new Error('Pausieren braucht noch ein Datenbank-Update (supabase/merge-and-pause.sql).');
+        }
+        throw new Error(error.message);
+      }
       return rowToPot(data as Record<string, unknown>);
     },
 

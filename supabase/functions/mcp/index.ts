@@ -38,7 +38,7 @@ const AUTH_SERVER = `${SUPABASE_URL}/auth/v1`;
 const RESOURCE_METADATA_URL = `${MCP_PUBLIC_URL}/.well-known/oauth-protected-resource`;
 
 const SERVER_NAME = 'finance';
-const SERVER_VERSION = '1.1.0';
+const SERVER_VERSION = '1.2.0';
 const SUPPORTED_PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const DEFAULT_PROTOCOL_VERSION = '2025-06-18';
 
@@ -556,6 +556,7 @@ const TOOLS = [
       'Art "steuer": der automatische Steuertopf (einer je Bereich), exakt befüllt aus der in Buchungen ' +
       'enthaltenen Steuer — Umsatzsteuer aus Einnahmen rein, Vorsteuer aus Ausgaben raus; ein negativer ' +
       'Bestand ist ein Vorsteuerüberhang. Der Bestand aller Töpfe ist reserviert und nicht verfügbar. ' +
+      '"aktiv": false heißt pausiert — der Bestand bleibt reserviert, neue Buchungen laufen aber nicht hinein. ' +
       'Ohne budget_id werden die Töpfe aller Bereiche zurückgegeben.',
     inputSchema: {
       type: 'object',
@@ -1203,7 +1204,7 @@ const HANDLERS: Record<string, Handler> = {
       .from('savings_pots')
       .select(
         'id, budget_id, name, kind, allocation_percent, target_amount, current_amount, ' +
-        'color, icon, sort_order, created_at, updated_at',
+        'color, icon, sort_order, is_active, created_at, updated_at',
       );
     if (budgetId) q = q.eq('budget_id', budgetId);
 
@@ -1230,6 +1231,8 @@ const HANDLERS: Record<string, Handler> = {
         zielerreichung_prozent: ziel && ziel > 0 ? Math.round((ist / ziel) * 1000) / 10 : null,
         symbol: p.icon != null ? String(p.icon) : null,
         reihenfolge: toNum(p.sort_order),
+        // false = pausiert: Bestand bleibt reserviert, neue Buchungen laufen nicht hinein.
+        aktiv: p.is_active !== false,
       };
     });
 
@@ -1495,13 +1498,16 @@ const HANDLERS: Record<string, Handler> = {
 
     const { data: potRows, error: potError } = await sb
       .from('savings_pots')
-      .select('id, name, allocation_percent, sort_order')
+      .select('id, name, allocation_percent, sort_order, is_active')
       .eq('budget_id', budgetId);
     if (potError) throw new ToolError(`Sparttöpfe konnten nicht gelesen werden: ${potError.message}`);
 
     const bestehende = (potRows ?? []) as Record<string, unknown>[];
-    // Der Steuertopf (0 %) zählt nicht zur 100-%-Grenze.
-    const belegt = bestehende.reduce((sum, p) => sum + toNum(p.allocation_percent), 0);
+    // Der Steuertopf (0 %) und pausierte Töpfe zählen nicht zur 100-%-Grenze
+    // (so rechnet auch der DB-Trigger, siehe supabase/merge-and-pause.sql).
+    const belegt = bestehende
+      .filter((p) => p.is_active !== false)
+      .reduce((sum, p) => sum + toNum(p.allocation_percent), 0);
     const frei = Math.round((100 - belegt) * 100) / 100;
 
     if (percent > frei) {

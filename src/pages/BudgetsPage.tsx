@@ -1,14 +1,17 @@
-import { useState, useEffect, useMemo, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, type FormEvent } from 'react';
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
-import type { Budget, Transaction } from '../types';
+import type { Budget, MergeResult, Transaction } from '../types';
 import { useBudget } from '../context/BudgetContext';
 import { useAuth } from '../context/AuthContext';
 import { createSupabaseAdapter } from '../lib/supabaseAdapter';
 import { createLocalStorageAdapter } from '../lib/localStorageAdapter';
 import Card from '../components/Card';
+import { ChoiceChips } from '../components/Choice';
+import MergeBudgetsPanel from '../components/MergeBudgetsPanel';
+import { useToast } from '../components/Toast';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { formatEuro, ACCENT, getLast12Months, formatAxisEuro, CHART_EXPENSE } from '../utils';
 import { parseAmount } from '../lib/money';
@@ -22,11 +25,22 @@ const PRESET_COLORS = [
   '#1A6985', '#374151', '#8B5CF6', '#059669', '#DC2626',
 ];
 
-export default function BudgetsPage() {
+const TYPE_OPTIONS: { value: Budget['type']; label: string }[] = [
+  { value: 'personal', label: 'Privat' },
+  { value: 'business', label: 'Firma' },
+];
+
+interface Props {
+  /** Nach dem Zusammenführen: Daten des aktiven Bereichs neu laden. */
+  onActiveDataChanged?: () => Promise<void>;
+}
+
+export default function BudgetsPage({ onActiveDataChanged }: Props) {
   const {
     budgets, activeBudgetId, defaultBudgetId, setActiveBudgetId, setDefaultBudgetId,
     createBudget, updateBudget, deleteBudget,
   } = useBudget();
+  const { showToast } = useToast();
   const { user } = useAuth();
   const ct = useChartTheme();
   const tooltipStyle = {
@@ -124,6 +138,31 @@ export default function BudgetsPage() {
   const [saving, setSaving] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [mergeBaseId, setMergeBaseId] = useState<string | null>(null);
+  const mergeBase = budgets.find(b => b.id === mergeBaseId) ?? null;
+  // Der Assistent steht oben; nach dem Antippen dorthin scrollen, sonst
+  // passiert für das Auge auf dem Handy nichts.
+  const mergeRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (mergeBaseId) mergeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [mergeBaseId]);
+  const txCounts = useMemo(
+    () => Object.fromEntries(Object.entries(txByBudget).map(([id, txs]) => [id, txs.length])),
+    [txByBudget],
+  );
+
+  async function handleMerged(result: MergeResult, name: string) {
+    setMergeBaseId(null);
+    setEditingId(null);
+    // Blieb der aktive Bereich derselbe, ändert sich seine ID nicht — die App
+    // lädt dann nicht von selbst nach. Wechselte er, lädt sie ohnehin.
+    if (result.targetId === activeBudgetId) await onActiveDataChanged?.();
+    const extra = [
+      result.potsPaused ? `${result.potsPaused} Topf/Töpfe pausiert` : null,
+      result.potsRemoved ? `${result.potsRemoved} Topf/Töpfe aufgelöst` : null,
+    ].filter(Boolean).join(', ');
+    showToast(`Zusammengeführt zu „${name}“${extra ? ` · ${extra}` : ''}.`, 'success');
+  }
 
   async function handleCreate(e: FormEvent) {
     e.preventDefault();
@@ -158,6 +197,21 @@ export default function BudgetsPage() {
           + Neuer Bereich
         </button>
       </div>
+
+      {/* Zusammenführen */}
+      {mergeBase && budgets.length > 1 && (
+        <div ref={mergeRef} className="scroll-mt-4">
+        <MergeBudgetsPanel
+          key={mergeBase.id}
+          base={mergeBase}
+          budgets={budgets}
+          balances={balances}
+          txCounts={txCounts}
+          onDone={handleMerged}
+          onCancel={() => setMergeBaseId(null)}
+        />
+        </div>
+      )}
 
       {/* ── Gesamtübersicht ─────────────────────────────────────────────── */}
       {budgets.length > 1 && (
@@ -284,14 +338,8 @@ export default function BudgetsPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Typ</label>
-                <select
-                  value={formType} onChange={e => setFormType(e.target.value as Budget['type'])}
-                  className="w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]"
-                >
-                  <option value="personal">Privat</option>
-                  <option value="business">Firma</option>
-                </select>
+                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Art</label>
+                <ChoiceChips label="Art des Bereichs" options={TYPE_OPTIONS} value={formType} onChange={setFormType} />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Startguthaben (€)</label>
@@ -350,6 +398,7 @@ export default function BudgetsPage() {
             editingId={editingId}
             setEditingId={setEditingId}
             onUpdate={updateBudget}
+            onMerge={budgets.length > 1 ? () => { setMergeBaseId(b.id); setEditingId(null); } : undefined}
           />
         ))}
       </div>
@@ -362,7 +411,7 @@ export default function BudgetsPage() {
 function BudgetCard({
   budget, balance, balanceLoading, isActive, isDefault, onActivate, onSetDefault,
   deleteConfirm, onDeleteConfirm, onDelete,
-  editingId, setEditingId, onUpdate,
+  editingId, setEditingId, onUpdate, onMerge,
 }: {
   budget: Budget;
   balance: number | null;
@@ -377,6 +426,8 @@ function BudgetCard({
   editingId: string | null;
   setEditingId: (id: string | null) => void;
   onUpdate: (id: string, patch: Partial<Budget>) => Promise<void>;
+  /** Fehlt, wenn es nur einen Bereich gibt. */
+  onMerge?: () => void;
 }) {
   const [editName, setEditName] = useState(budget.name);
   const [editType, setEditType] = useState<Budget['type']>(budget.type);
@@ -403,53 +454,34 @@ function BudgetCard({
     <Card className={`p-4 ${isActive ? 'border-l-4' : ''}`} style={isActive ? { borderLeftColor: budget.color } as React.CSSProperties : undefined}>
       <div className="flex items-center gap-3">
         <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: budget.color }} />
-        <div className="flex-1 min-w-0">
-          {isEditing ? (
-            <div className="flex gap-2">
-              <input
-                value={editName} onChange={e => setEditName(e.target.value)}
-                className="flex-1 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]"
-              />
-              <select
-                value={editType} onChange={e => setEditType(e.target.value as Budget['type'])}
-                title="Art des Bereichs — Firma schaltet die Steuerfelder frei"
-                className="w-28 border border-gray-200 dark:border-gray-600 rounded px-2 py-1 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5]"
-              >
-                <option value="personal">Privat</option>
-                <option value="business">Firma</option>
-              </select>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                  {budget.name}
-                  {isActive && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(aktiv)</span>}
-                </p>
-                <p className="text-xs text-gray-400 dark:text-gray-500">
-                  {budget.type === 'business' ? 'Firma' : 'Privat'}
-                </p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                {balanceLoading ? (
-                  <div className="w-3 h-3 border-2 border-gray-200 dark:border-gray-600 rounded-full animate-spin mx-auto" style={{ borderTopColor: budget.color }} />
-                ) : (
-                  <p className={`text-sm font-semibold tabular-nums ${balance === null ? 'text-gray-300' : balance < 0 ? 'text-red-500 dark:text-red-400' : 'text-gray-900 dark:text-gray-100'}`}>
-                    {balance === null ? '—' : formatEuro(balance)}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
+        <div className="flex-1 min-w-0 flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+              {budget.name}
+              {isActive && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(aktiv)</span>}
+            </p>
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              {budget.type === 'business' ? 'Firma' : 'Privat'}
+            </p>
+          </div>
+          <div className="text-right flex-shrink-0">
+            {balanceLoading ? (
+              <div className="w-3 h-3 border-2 border-gray-200 dark:border-gray-600 rounded-full animate-spin mx-auto" style={{ borderTopColor: budget.color }} />
+            ) : (
+              <p className={`text-sm font-semibold tabular-nums ${balance === null ? 'text-gray-300' : balance < 0 ? 'text-red-500 dark:text-red-400' : 'text-gray-900 dark:text-gray-100'}`}>
+                {balance === null ? '—' : formatEuro(balance)}
+              </p>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {!isActive && !isEditing && (
-            <button onClick={onActivate}
-              className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
-              Wechseln
-            </button>
-          )}
-          {!isEditing && (
+        {!isEditing && (
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {!isActive && (
+              <button onClick={onActivate}
+                className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300">
+                Wechseln
+              </button>
+            )}
             <button
               onClick={onSetDefault}
               title={isDefault ? 'Standard-Bereich' : 'Als Standard festlegen'}
@@ -460,44 +492,62 @@ function BudgetCard({
                   d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
               </svg>
             </button>
-          )}
-          {isEditing ? (
-            <>
-              <button onClick={handleSave} disabled={saving}
-                className="text-xs px-2 py-1 text-white rounded disabled:opacity-50"
-                style={{ backgroundColor: ACCENT }}>
-                {saving ? '…' : 'Speichern'}
-              </button>
-              <button onClick={() => setEditingId(null)}
-                className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300">Abbruch</button>
-            </>
-          ) : (
             <button onClick={() => { setEditName(budget.name); setEditType(budget.type); setEditingId(budget.id); }}
+              title="Bearbeiten oder zusammenführen"
               className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                   d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
             </button>
-          )}
-          {deleteConfirm === budget.id ? (
-            <div className="flex gap-1">
-              <button onClick={() => onDelete(budget.id)}
-                className="text-xs px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded">Ja</button>
-              <button onClick={() => onDeleteConfirm(null)}
-                className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300">Nein</button>
-            </div>
-          ) : (
-            <button onClick={() => onDeleteConfirm(budget.id)}
-              className="p-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                  d="M6 18L18 6M6 6l12 12" />
-              </svg>
+            {deleteConfirm === budget.id ? (
+              <div className="flex gap-1">
+                <button onClick={() => onDelete(budget.id)}
+                  className="text-xs px-2 py-1 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 rounded">Ja</button>
+                <button onClick={() => onDeleteConfirm(null)}
+                  className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300">Nein</button>
+              </div>
+            ) : (
+              <button onClick={() => onDeleteConfirm(budget.id)} title="Löschen"
+                className="p-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                    d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Bearbeiten: Name, Art (antippen) und Zusammenführen an einer Stelle */}
+      {isEditing && (
+        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 space-y-3">
+          <input
+            value={editName} onChange={e => setEditName(e.target.value)}
+            aria-label="Name des Bereichs"
+            className="w-full border border-gray-200 dark:border-gray-600 rounded px-3 py-2.5 text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:border-[#4A6FA5] min-h-[44px]"
+          />
+          <ChoiceChips label="Art des Bereichs" options={TYPE_OPTIONS} value={editType} onChange={setEditType} />
+          <div className="flex gap-2">
+            <button onClick={handleSave} disabled={saving}
+              className="flex-1 py-2.5 text-sm font-semibold text-white rounded disabled:opacity-50 min-h-[44px]"
+              style={{ backgroundColor: ACCENT }}>
+              {saving ? 'Speichern…' : 'Speichern'}
+            </button>
+            <button onClick={() => setEditingId(null)}
+              className="px-4 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 min-h-[44px]">
+              Abbrechen
+            </button>
+          </div>
+          {onMerge && (
+            <button onClick={onMerge}
+              className="w-full py-2.5 text-sm border border-dashed border-gray-300 dark:border-gray-600 rounded text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 min-h-[44px]">
+              Mit anderem Bereich zusammenführen …
             </button>
           )}
         </div>
-      </div>
+      )}
     </Card>
   );
 }

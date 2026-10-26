@@ -1,6 +1,6 @@
 import type {
   Transaction, Category, Settings, Budget,
-  RecurringTransaction,
+  RecurringTransaction, MergeResult,
 } from '../types';
 
 // ── StorageAdapter ─────────────────────────────────────────────────────────────
@@ -41,4 +41,9 @@ export interface BudgetStorage {
   addBudget(b: Budget): Promise<Budget>;
   updateBudget(id: string, patch: Partial<Budget>): Promise<Budget>;
   deleteBudget(id: string): Promise<void>;
+  /**
+   * Führt `sourceId` in `targetId` zusammen und löscht danach `sourceId`.
+   * type 'personal' entfernt Töpfe und Steueranteile, 'business' behält sie.
+   */
+  mergeBudgets(sourceId: string, targetId: string, name: string, type: Budget['type']): Promise<MergeResult>;
 }

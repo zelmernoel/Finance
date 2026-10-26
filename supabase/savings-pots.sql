@@ -9,7 +9,8 @@
 -- HINWEIS: Die Trigger-Funktionen hier sind die Erstfassung. Sie
 -- werden von supabase/tax.sql ersetzt (Steuertopf, Netto-Verteilung,
 -- Spalte pot_allocations.transaction_id). Reihenfolge bei einer
--- Neuinstallation: schema.sql → savings-pots.sql → mcp-schema.sql → tax.sql.
+-- Neuinstallation: schema.sql → savings-pots.sql → mcp-schema.sql → tax.sql
+-- → merge-and-pause.sql (ersetzt die Verteilung erneut: pausierte Töpfe).
 -- ============================================================
 
 -- ── savings_pots ─────────────────────────────────────────────

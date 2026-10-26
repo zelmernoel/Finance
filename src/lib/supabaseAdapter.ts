@@ -401,5 +401,28 @@ export function createSupabaseBudgetStorage(userId: string): BudgetStorage {
         .delete().eq('id', id).eq('user_id', userId);
       if (error) { console.error('[Supabase Error]', error.message, error); throw new Error(error.message); }
     },
+    async mergeBudgets(sourceId, targetId, name, type) {
+      // Eine RPC statt vieler Einzel-Updates: die Datenbank führt alles in
+      // einer Transaktion aus. Bricht etwas ab, bleibt alles wie vorher.
+      const { data, error } = await supabase.rpc('merge_budgets', {
+        p_source: sourceId, p_target: targetId, p_name: name, p_type: type,
+      });
+      if (error) {
+        console.error('[Supabase Error]', error.message, error);
+        if (error.code === 'PGRST202' || /merge_budgets/.test(error.message)) {
+          throw new Error('Zusammenführen braucht noch ein Datenbank-Update (supabase/merge-and-pause.sql).');
+        }
+        throw new Error(error.message);
+      }
+      const r = (data ?? {}) as Record<string, unknown>;
+      return {
+        targetId:          String(r.target_id ?? targetId),
+        transactionsMoved: Number(r.transactions_moved ?? 0),
+        recurringMoved:    Number(r.recurring_moved ?? 0),
+        potsMoved:         Number(r.pots_moved ?? 0),
+        potsPaused:        Number(r.pots_paused ?? 0),
+        potsRemoved:       Number(r.pots_removed ?? 0),
+      };
+    },
   };
 }

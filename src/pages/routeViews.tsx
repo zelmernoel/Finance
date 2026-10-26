@@ -93,7 +93,8 @@ export function RecurringView() {
 }
 
 export function BudgetsView() {
-  return <BudgetsPage />;
+  const c = useAppContext();
+  return <BudgetsPage onActiveDataChanged={c.reloadData} />;
 }
 
 export function SavingsView() {

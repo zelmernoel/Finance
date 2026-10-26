@@ -1,5 +1,5 @@
 import type {
-  Transaction, Category, Settings, Budget, RecurringTransaction,
+  Transaction, Category, Settings, Budget, RecurringTransaction, MergeResult,
 } from '../types';
 import type { StorageAdapter, BudgetStorage } from './storage';
 import { defaultCategoriesFor } from './defaultCategories';
@@ -155,6 +155,66 @@ export function createLocalBudgetStorage(): BudgetStorage {
       localStorage.removeItem(catKey(id));
       localStorage.removeItem(setKey(id));
       localStorage.removeItem(recKey(id));
+    },
+    async mergeBudgets(sourceId, targetId, name, type): Promise<MergeResult> {
+      // Gast-Modus: keine Töpfe, deshalb nur Buchungen, Kategorien,
+      // Daueraufträge und Startguthaben. Gleiche Regeln wie die RPC.
+      const list = ls<Budget[]>(GUEST_BUDGETS_KEY, []);
+      const source = list.find(b => b.id === sourceId);
+      const target = list.find(b => b.id === targetId);
+      if (!source || !target || sourceId === targetId) throw new Error('Bereich nicht gefunden.');
+      const cleanName = name.trim();
+      if (!cleanName) throw new Error('Bitte einen Namen angeben.');
+
+      const src = createLocalStorageAdapter(sourceId);
+      const tgt = createLocalStorageAdapter(targetId);
+      const stripTax = type === 'personal';
+
+      const [srcTx, tgtTx, srcCats, tgtCats, srcRec, tgtRec, srcSet, tgtSet] = await Promise.all([
+        src.getTransactions(), tgt.getTransactions(), src.getCategories(), tgt.getCategories(),
+        src.getRecurring(), tgt.getRecurring(), src.getSettings(), tgt.getSettings(),
+      ]);
+
+      const tx = [...tgtTx, ...srcTx]
+        .map(t => (stripTax ? { ...t, taxAmount: 0 } : t))
+        .sort((a, b) => b.date.localeCompare(a.date));
+      const rec = [...tgtRec, ...srcRec.map(r => ({ ...r, budgetId: targetId }))]
+        .map(r => (stripTax ? { ...r, taxAmount: 0 } : r));
+
+      const sameCat = (a: Category, b: Category) => a.name === b.name && a.type === b.type;
+      const cats = [
+        ...tgtCats.map(t => {
+          const s = srcCats.find(c => sameCat(c, t));
+          return s ? {
+            ...t,
+            monthlyBudget:    t.monthlyBudget    ?? s.monthlyBudget,
+            defaultFrequency: t.defaultFrequency ?? s.defaultFrequency,
+            defaultTaxRate:   t.defaultTaxRate   ?? s.defaultTaxRate,
+          } : t;
+        }),
+        ...srcCats.filter(s => !tgtCats.some(t => sameCat(s, t))),
+      ].map(c => (stripTax ? { ...c, defaultTaxRate: undefined } : c));
+
+      lsSet(txKey(targetId), tx);
+      lsSet(recKey(targetId), rec);
+      lsSet(catKey(targetId), cats);
+      lsSet(setKey(targetId), { ...tgtSet, startingBalance: (tgtSet.startingBalance ?? 0) + (srcSet.startingBalance ?? 0) });
+
+      lsSet(GUEST_BUDGETS_KEY, list
+        .filter(b => b.id !== sourceId)
+        .map(b => b.id === targetId ? {
+          ...b, name: cleanName, type,
+          startingBalance: (b.startingBalance ?? 0) + (source.startingBalance ?? 0),
+        } : b));
+      localStorage.removeItem(txKey(sourceId));
+      localStorage.removeItem(catKey(sourceId));
+      localStorage.removeItem(setKey(sourceId));
+      localStorage.removeItem(recKey(sourceId));
+
+      return {
+        targetId, transactionsMoved: srcTx.length, recurringMoved: srcRec.length,
+        potsMoved: 0, potsPaused: 0, potsRemoved: 0,
+      };
     },
   };
 }

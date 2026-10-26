@@ -2,7 +2,7 @@ import {
   createContext, useContext, useEffect, useState,
   useCallback, type ReactNode,
 } from 'react';
-import type { Budget } from '../types';
+import type { Budget, MergeResult } from '../types';
 import { useAuth } from './AuthContext';
 import { createLocalBudgetStorage, GUEST_ACTIVE_KEY } from '../lib/localStorageAdapter';
 import { createSupabaseBudgetStorage, initializeNewUser, createSupabaseAdapter } from '../lib/supabaseAdapter';
@@ -24,6 +24,7 @@ interface BudgetContextValue {
   createBudget: (name: string, type: Budget['type'], startingBalance: number, color: string) => Promise<Budget>;
   updateBudget: (id: string, patch: Partial<Budget>) => Promise<void>;
   deleteBudget: (id: string) => Promise<void>;
+  mergeBudgets: (sourceId: string, targetId: string, name: string, type: Budget['type']) => Promise<MergeResult>;
   refreshBudgets: () => Promise<void>;
 }
 
@@ -149,12 +150,26 @@ export function BudgetProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  async function mergeBudgets(sourceId: string, targetId: string, name: string, type: Budget['type']) {
+    const result = await getStorage().mergeBudgets(sourceId, targetId, name, type);
+    setBudgets(prev => prev
+      .filter(b => b.id !== sourceId)
+      .map(b => b.id === targetId ? { ...b, name: name.trim(), type } : b));
+    // Zeigte der aktive oder gepinnte Bereich auf die Quelle, gilt jetzt das Ziel.
+    if (activeBudgetId === sourceId) setActiveBudgetId(targetId);
+    if (defaultBudgetId === sourceId) {
+      setDefaultBudgetIdState(targetId);
+      localStorage.setItem(DEFAULT_BUDGET_KEY, targetId);
+    }
+    return result;
+  }
+
   const activeBudget = budgets.find(b => b.id === activeBudgetId) ?? null;
 
   return (
     <BudgetContext.Provider value={{
       budgets, activeBudgetId, activeBudget, defaultBudgetId, loadingBudgets,
-      setActiveBudgetId, setDefaultBudgetId, createBudget, updateBudget, deleteBudget, refreshBudgets,
+      setActiveBudgetId, setDefaultBudgetId, createBudget, updateBudget, deleteBudget, mergeBudgets, refreshBudgets,
     }}>
       {children}
     </BudgetContext.Provider>

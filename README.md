@@ -25,7 +25,7 @@ npm install
 ### 2. Supabase-Projekt erstellen
 
 1. Auf [supabase.com](https://supabase.com) einloggen und ein neues Projekt anlegen.
-2. Im **SQL Editor** nacheinander ausführen: `supabase/schema.sql` (Tabellen + RLS), `supabase/savings-pots.sql` (Sparttöpfe), `supabase/mcp-schema.sql` (MCP-Zugriff, siehe `MCP-SETUP.md`) und `supabase/tax.sql` (Steuer, Steuertopf, Kategorie-Vorbelegungen).
+2. Im **SQL Editor** nacheinander ausführen: `supabase/schema.sql` (Tabellen + RLS), `supabase/savings-pots.sql` (Sparttöpfe), `supabase/mcp-schema.sql` (MCP-Zugriff, siehe `MCP-SETUP.md`) `supabase/tax.sql` (Steuer, Steuertopf, Kategorie-Vorbelegungen) und `supabase/merge-and-pause.sql` (Töpfe pausieren, Bereiche zusammenführen).
 3. Unter **Project Settings → API** die folgenden Werte kopieren:
    - `Project URL`
    - `anon / public` Key
@@ -79,7 +79,8 @@ jeder Nutzer sieht ausschließlich seine eigenen Transaktionen, Kategorien und E
 | Transaktionen | Tabelle mit Filter, Suche, Sortierung, Löschen, CSV-Export |
 | Neue Buchung | Wizard in vier Schritten: Was (Typ + Kategorie) → Wie viel (im Firmenbereich mit Brutto/Netto/Steuer) → Details (Datum, Beschreibung, Dauerauftrag, Beleg, Notizen) → Prüfen |
 | Auswertungen | Top-5-Kategorien, Ø-Ausgaben, Spartrend, Ausgabenrhythmus, Jahresübersicht |
-| Sparttöpfe | Manuelle Töpfe (Prozent vom Netto jeder Einnahme) und der automatische Steuertopf (Umsatzsteuer rein, Vorsteuer raus) |
+| Sparttöpfe | Manuelle Töpfe (Prozent vom Netto jeder Einnahme) und der automatische Steuertopf (Umsatzsteuer rein, Vorsteuer raus); jeder Topf lässt sich pausieren |
+| Bereiche | Anlegen, bearbeiten, Gesamtanalyse, zwei Bereiche zu einem zusammenführen |
 | Daueraufträge | Übersicht, Pausieren/Aktivieren; angelegt werden sie im Buchungs-Wizard |
 | Einstellungen | Profil, Startsaldo, Kontostand-Abgleich, CSV/JSON-Export, CSV-Import, Kategorien mit Vorbelegungen (Steuersatz, Dauerauftrag), Datensatz-Reset |
 
@@ -95,3 +96,17 @@ Die Verteilung macht die Datenbank (Trigger in `supabase/tax.sql`), damit App, D
 - Prozent-Töpfe bekommen ihren Anteil vom Netto
 
 „Verfügbar“ im Dashboard ist der Kontostand abzüglich aller Töpfe — der Steuertopf eingeschlossen, denn dieses Geld gehört dem Finanzamt.
+
+## Töpfe pausieren
+
+Ein Tipp auf „Läuft“ pausiert einen Topf. Der Bestand bleibt und zählt weiter als reserviert (also nicht zu „Verfügbar“), neue Buchungen laufen aber nicht mehr hinein. Pausierte Töpfe belegen keinen Anteil an der 100 %-Grenze. Beim Fortsetzen gilt die Grenze wieder, rückwirkend wird nichts aufgefüllt. Auch der Steuertopf lässt sich pausieren; die Steuer schuldet man dem Finanzamt dann trotzdem, sie wird nur nicht mehr zurückgelegt.
+
+## Bereiche zusammenführen
+
+Unter Bereiche → Bearbeiten → „Mit anderem Bereich zusammenführen“: anderen Bereich antippen, Art wählen, Namen geben, prüfen. Die Datenbankfunktion `merge_budgets` erledigt alles in einer Transaktion (alles oder nichts):
+
+- Buchungen, Daueraufträge und Kategorien wandern mit, gleichnamige Kategorien werden eins, Startguthaben addiert
+- **Privat:** Töpfe beider Bereiche werden aufgelöst, Steueranteile entfernt
+- **Firma:** Töpfe bleiben und laufen weiter, zwei Steuertöpfe werden einer. Kämen die aktiven Prozent-Töpfe zusammen über 100 %, werden die hinzukommenden pausiert statt die Zusammenführung abzubrechen
+
+Tests dazu laufen ohne Datenbank gegen das echte Schema: `npm run test:sql`.

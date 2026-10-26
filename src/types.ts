@@ -57,6 +57,16 @@ export interface Budget {
   createdAt: string;
 }
 
+/** Ergebnis von „Bereiche zusammenführen“ — für die Erfolgsmeldung. */
+export interface MergeResult {
+  targetId: string;
+  transactionsMoved: number;
+  recurringMoved: number;
+  potsMoved: number;
+  potsPaused: number;
+  potsRemoved: number;
+}
+
 // ── Savings pots (Sparttöpfe) ─────────────────────────────────────────────────
 // Nur für eingeloggte Nutzer. Verteilung/Rückabwicklung laufen serverseitig
 // über DB-Trigger (siehe supabase/savings-pots.sql).
@@ -78,6 +88,11 @@ export interface SavingsPot {
   color: string;               // hex
   icon?: string;               // optionaler Emoji-/Icon-Identifier
   sortOrder: number;           // höchste = neuester Topf, bekommt Rundungsrest
+  /**
+   * false = pausiert: Bestand bleibt (und zählt weiter als reserviert),
+   * neue Buchungen laufen aber nicht mehr hinein. Siehe supabase/merge-and-pause.sql.
+   */
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
 }

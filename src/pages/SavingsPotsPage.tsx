@@ -50,15 +50,21 @@ export default function SavingsPotsPage({ pots, adapter, onChanged }: Props) {
   const [history, setHistory]       = useState<Record<string, PotAllocation[] | 'loading'>>({});
 
   // ── Derived allocation figures ─────────────────────────────────────────────
-  // Nur manuelle Töpfe zählen zur 100 %-Grenze; der Steuertopf hat 0 %.
-  const manualPots     = pots.filter(p => p.kind === 'manual');
+  // Zur 100 %-Grenze zählen nur AKTIVE manuelle Töpfe: ein pausierter Topf
+  // verteilt nichts (so rechnet auch der DB-Trigger). Der Steuertopf hat 0 %.
+  const manualPots     = pots.filter(p => p.kind === 'manual' && p.isActive);
+  const pausedCount    = pots.filter(p => !p.isActive).length;
   const totalAllocated = manualPots.reduce((s, p) => s + p.allocationPercent, 0);
-  const otherAllocated = editingId
-    ? totalAllocated - (pots.find(p => p.id === editingId)?.allocationPercent ?? 0)
+  const editingPot     = editingId ? pots.find(p => p.id === editingId) : undefined;
+  // Ein pausierter Topf darf beliebig eingestellt werden — die Grenze prüft
+  // die DB erst beim Fortsetzen.
+  const countsToLimit  = !editingPot || editingPot.isActive;
+  const otherAllocated = editingPot?.isActive
+    ? totalAllocated - editingPot.allocationPercent
     : totalAllocated;
   const inputPercent = parseAmount(form.percent) ?? 0;
   const freeAfter    = Math.round((100 - otherAllocated - inputPercent) * 100) / 100;
-  const overbooked   = freeAfter < 0;
+  const overbooked   = countsToLimit && freeAfter < 0;
   const isFull        = totalAllocated >= 100;
 
   // ── Form helpers ───────────────────────────────────────────────────────────
@@ -125,6 +131,25 @@ export default function SavingsPotsPage({ pots, adapter, onChanged }: Props) {
       setFormError(e instanceof Error ? e.message : 'Fehler beim Speichern.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  // Pausieren/Fortsetzen: Bestand bleibt, nur neue Buchungen laufen (nicht) hinein.
+  const [toggling, setToggling] = useState<string | null>(null);
+  async function toggleActive(pot: SavingsPot) {
+    if (!adapter) return;
+    setToggling(pot.id);
+    setError(null);
+    try {
+      await adapter.updatePot(pot.id, { isActive: !pot.isActive });
+      await onChanged();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Fehler beim Umschalten.';
+      setError(/100/.test(msg)
+        ? `„${pot.name}“ würde die aktiven Töpfe über 100 % bringen. Erst einen anderen Topf reduzieren oder pausieren.`
+        : msg);
+    } finally {
+      setToggling(null);
     }
   }
 
@@ -198,7 +223,7 @@ export default function SavingsPotsPage({ pots, adapter, onChanged }: Props) {
       </div>
 
       {/* ── Allocation overview ─────────────────────────────────────────────── */}
-      {manualPots.length > 0 && (
+      {(manualPots.length > 0 || pausedCount > 0) && (
         <Card className="p-4">
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Verplant je Netto-Einnahme</p>
@@ -213,7 +238,12 @@ export default function SavingsPotsPage({ pots, adapter, onChanged }: Props) {
           </div>
           {isFull && (
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
-              100 % verplant — für weitere Töpfe zuerst einen bestehenden reduzieren.
+              100 % verplant — für weitere Töpfe zuerst einen bestehenden reduzieren oder pausieren.
+            </p>
+          )}
+          {pausedCount > 0 && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+              {pausedCount} {pausedCount === 1 ? 'Topf ist' : 'Töpfe sind'} pausiert und {pausedCount === 1 ? 'zählt' : 'zählen'} hier nicht mit.
             </p>
           )}
         </Card>
@@ -338,7 +368,7 @@ export default function SavingsPotsPage({ pots, adapter, onChanged }: Props) {
             const rows = history[pot.id];
             return (
               <Card key={pot.id} className="p-4">
-                <div className="flex items-start gap-3">
+                <div className={`flex items-start gap-3 transition-opacity ${pot.isActive ? '' : 'opacity-60'}`}>
                   <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-base"
                     style={{ backgroundColor: pot.icon ? 'transparent' : pot.color, border: pot.icon ? `2px solid ${pot.color}` : undefined }}>
                     {pot.icon || ''}
@@ -346,9 +376,12 @@ export default function SavingsPotsPage({ pots, adapter, onChanged }: Props) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{pot.name}</p>
-                      <span className="text-xs font-semibold px-1.5 py-0.5 rounded flex-shrink-0" style={{ color: pot.color, backgroundColor: `${pot.color}1a` }}>
-                        {pot.kind === 'tax' ? 'Steuer · automatisch' : `${pot.allocationPercent.toFixed(pot.allocationPercent % 1 === 0 ? 0 : 2)} %`}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <span className="text-xs font-semibold px-1.5 py-0.5 rounded" style={{ color: pot.color, backgroundColor: `${pot.color}1a` }}>
+                          {pot.kind === 'tax' ? 'Steuer · automatisch' : `${pot.allocationPercent.toFixed(pot.allocationPercent % 1 === 0 ? 0 : 2)} %`}
+                        </span>
+                        <PauseToggle active={pot.isActive} busy={toggling === pot.id} onToggle={() => toggleActive(pot)} />
+                      </div>
                     </div>
                     <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 tabular-nums mt-0.5">
                       {formatEuro(pot.currentAmount)}
@@ -356,7 +389,14 @@ export default function SavingsPotsPage({ pots, adapter, onChanged }: Props) {
                         <span className="text-xs font-normal text-gray-400 dark:text-gray-500"> / {formatEuro(pot.targetAmount as number)}</span>
                       )}
                     </p>
-                    {pot.kind === 'tax' && (
+                    {!pot.isActive && (
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                        {pot.kind === 'tax'
+                          ? 'Pausiert: Steuer aus neuen Buchungen wird nicht mehr zurückgelegt. Schulden ans Finanzamt entstehen trotzdem.'
+                          : 'Pausiert: Bestand bleibt reserviert, neue Einnahmen laufen nicht hinein.'}
+                      </p>
+                    )}
+                    {pot.kind === 'tax' && pot.isActive && (
                       <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5">
                         {pot.currentAmount < 0
                           ? 'Vorsteuerüberhang: das Finanzamt schuldet dir diesen Betrag.'
@@ -432,5 +472,19 @@ export default function SavingsPotsPage({ pots, adapter, onChanged }: Props) {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Pausieren / Fortsetzen ────────────────────────────────────────────────────
+// Ein Tipp schaltet um. Grüner Punkt = läuft, grauer = pausiert.
+function PauseToggle({ active, busy, onToggle }: { active: boolean; busy: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" onClick={onToggle} disabled={busy}
+      role="switch" aria-checked={active}
+      title={active ? 'Pausieren: neue Buchungen laufen nicht mehr hinein' : 'Fortsetzen: neue Buchungen laufen wieder hinein'}
+      className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-full border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 min-h-[28px]">
+      <span className={`w-2 h-2 rounded-full ${active ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-gray-500'}`} />
+      {busy ? '…' : active ? 'Läuft' : 'Pausiert'}
+    </button>
   );
 }

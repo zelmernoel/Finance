@@ -411,7 +411,12 @@ export default function NewTransaction({
                           </div>
                         </div>
 
-                        {grossNum > 0 && isValidTaxSplit(grossNum, taxNum) && (
+                        {grossNum > 0 && isValidTaxSplit(grossNum, taxNum) && taxPot && !taxPot.isActive && (
+                          <p className="text-xs text-gray-500 dark:text-gray-400">
+                            Der Topf „{taxPot.name}“ ist pausiert: die Steuer wird erfasst, aber nicht zurückgelegt.
+                          </p>
+                        )}
+                        {grossNum > 0 && isValidTaxSplit(grossNum, taxNum) && (!taxPot || taxPot.isActive) && (
                           <p className="text-xs text-gray-500 dark:text-gray-400">
                             {taxMode === 'full'
                               ? (type === 'income'
@@ -508,7 +513,9 @@ export default function NewTransaction({
                       <SummaryRow label="Netto" value={formatEuro(netNum)} />
                       <SummaryRow
                         label={taxMode === 'full' ? (type === 'income' ? 'Erstattung' : 'Steuerzahlung') : type === 'income' ? 'Umsatzsteuer' : 'Vorsteuer'}
-                        value={`${type === 'income' ? '+' : '−'} ${formatEuro(taxNum)} → Topf „${taxPot?.name ?? 'Umsatzsteuer'}“`} />
+                        value={taxPot && !taxPot.isActive
+                          ? `${formatEuro(taxNum)} (Topf pausiert, nicht zurückgelegt)`
+                          : `${type === 'income' ? '+' : '−'} ${formatEuro(taxNum)} → Topf „${taxPot?.name ?? 'Umsatzsteuer'}“`} />
                     </>
                   )}
                   <SummaryRow label="Datum" value={formatDate(date)} onEdit={() => setStep(2)} />

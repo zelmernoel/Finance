@@ -46,6 +46,8 @@ export interface AppContextValue {
   pots: SavingsPot[];
   potsAdapter: SavingsPotsStorage | null;
   refreshPots: () => Promise<void>;
+  /** Alles des aktiven Bereichs neu laden (z. B. nach dem Zusammenführen). */
+  reloadData: () => Promise<void>;
   /** Vom Dashboard angeklickter Monat, den die Auswertung anzeigen soll. */
   analysisMonth?: { year: number; month: number };
   goToMonth: (year: number, month: number) => void;
@@ -350,6 +352,7 @@ export default function MainApp() {
     pots,
     potsAdapter,
     refreshPots,
+    reloadData: () => loadData({ silent: true }),
     analysisMonth,
     goToMonth,
     goToTab,
